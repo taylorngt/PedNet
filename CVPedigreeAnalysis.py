@@ -110,11 +110,13 @@ def trackRelation(normalized_categorized_lines, IndvDataDict, distance_threshold
             
             #find secondary vertical (if it exists)
             secondary_exists = False
-            next_coord= 0
             Cx1,Cy1,Cx2,Cy2 = endpoints
             for vert_line in normalized_categorized_lines['vertical']:
                 Vx1,Vy1,Vx2,Vy2 = vert_line
-                if abs(Cy1 - Vy1) < distance_threshold and (Cx1-distance_threshold < Vx1 and Vx1 < Cx2+distance_threshold):
+                #checks that the two lines intersect in a perpendicular way
+                #adding distance threshold to Vy2 inorder to trncate the veritcal line from the top
+                #this avoid seeing downward point sibling veritcal lines and progressing along that instead of parental lines
+                if (Vy1+distance_threshold > Cy1 and Cy1 > Vy2+distance_threshold) and (Cx1-distance_threshold < Vx1 and Vx1 < Cx2+distance_threshold):
                     next_coord = (Vx2, Vy2)
                     secondary_exists = True
                     break
@@ -160,7 +162,7 @@ def trackRelation(normalized_categorized_lines, IndvDataDict, distance_threshold
 # INDIVIDUAL ID DETECTION
 #----------------------------------------
 
-img = cv2.imread('data/Pedigree3.png')
+img = cv2.imread('data/Pedigree4.png')
 img_height, img_width, _ = img.shape
 img_area = img_height * img_width
 gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -236,32 +238,22 @@ raw_lines = cv2.HoughLinesP(edges,
                         threshold= 50,
                         minLineLength= 50,
                         maxLineGap= 150)
-raw_line_img = np.copy(annotated_img)*0
+
 cat_norm_lines = categorize_normalize_lines(raw_lines)
-for line in raw_lines:
-    x1, y1, x2, y2 = line[0]
-    raw_line_img = cv2.line(raw_line_img, (x1,y1), (x2,y2), (255,255,255), 5)
+
 line_img = np.copy(annotated_img)*0
 lines = merge_duplicate_lines(cat_norm_lines)
-print(f"Number Vertical Lines: {len(lines['vertical'])}")
-print(f"Number Horizontal Lines: {len(lines['horizontal'])}")
+
 for direction in lines.keys():
     for line in lines[direction]:
         x1, y1, x2, y2 = line
         line_img = cv2.line(line_img, (x1,y1), (x2,y2), (255,255,255), 5)
 
-
-
 IndvIDsDict, connection_lines = trackRelation(lines, IndvIDsDict)
-
 
 for line in connection_lines:
     x1, y1, x2, y2 = line
     line_img = cv2.line(line_img, (x1,y1), (x2,y2), (255,255,255), 5)
-
-
-print('Normalized Connection Coordinates')
-pprint(cat_norm_lines)
        
 
 print('Individuals with Parental Relations')
@@ -270,14 +262,9 @@ pprint(IndvIDsDict)
 
 
 
-
-# annotated_img = cv2.addWeighted(annotated_img, 0.8, line_img, 0.2, 0)
-cv2.imshow('dark_contours', threshold_dark)
-cv2.imshow('redacted', redacted_img)
-cv2.imshow('raw_lines', raw_line_img)
 cv2.imshow('lines', line_img)
 cv2.imshow('annotated', annotated_img)
 k = cv2.waitKey(0)
 if k == ord('s'):
-    cv2.imwrite('data/Pedigree1AutoRedacted.png', img)
+    cv2.imwrite('data/Pedigree1AutoRedacted.png', annotated_img)
 cv2.destroyAllWindows
