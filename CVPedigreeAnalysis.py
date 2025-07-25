@@ -23,48 +23,59 @@ def closestLabel(marker_coords, label_dict):
             closestLabel = label
     return closestLabel
 
-def merge_duplicate_lines(lines, angle_threshold= 10, distance_threshold= 50):
-    merged_lines = []
-    for line in lines:
-        x1, y1, x2, y2 = line[0]
-        duplicate = False
-        for merged_line in merged_lines:
-            mx1, my1, mx2, my2 = merged_line
-            line_angle = np.arctan2((y2-y1), (x2-x2)) 
-            merged_line_angle = np.arctan2((my2-my1), (mx2-mx2)) 
-            angle_difference = abs(np.degrees(line_angle - merged_line_angle))
+def merge_duplicate_lines(norm_cat_lines, angle_threshold= 10, distance_threshold= 100):
+    directional_merged_lines = {}
+    for direction in norm_cat_lines.keys():
+        merged_lines = []
+        for line in norm_cat_lines[direction]:
+            x1, y1, x2, y2 = line
+            duplicate = False
+            for i in range(len(merged_lines)):
+                mx1, my1, mx2, my2 = merged_lines[i]
+                line_angle = np.arctan2((y2-y1), (x2-x2)) 
+                merged_line_angle = np.arctan2((my2-my1), (mx2-mx2)) 
+                angle_difference = abs(np.degrees(line_angle - merged_line_angle))
 
-            if angle_difference < angle_threshold and linDist((x1,y1), (mx1,my1)) < distance_threshold:
-                duplicate = True
-                #breaks loop through merged lines since we determined it to be duplicate
-                break
-        if not duplicate:
-            merged_lines.append(line[0])
+                if angle_difference < angle_threshold and (linDist((x1,y1), (mx1,my1)) < distance_threshold or linDist((x2,y2), (mx2,my2)) < distance_threshold):
+                    duplicate = True
+                    #if the duplicate is longer choose the longer of the two
+                    if linDist((mx1,my1),(mx2,my2)) < linDist((x1,y1),(x2,y2)):
+                        merged_lines[i] = (x1,y1,x2,y2)
+                    #if the a single line segment was chopped in two
+                    
+                    #breaks loop through merged lines since we determined it to be duplicate
+                    break
+            if not duplicate:
+                merged_lines.append(line)
+
+        directional_merged_lines[direction] = merged_lines
     
-    return merged_lines
+    return directional_merged_lines
 
 
-def categorize_normalize_lines(lines):
+def categorize_normalize_lines(lines, tilt_threshold = 10):
     categorized_normalized_lines = {
     'vertical': [],
     'horizontal': []
     }
     print(f'Number of Lines Detected: {len(lines)}')
     for line in lines:
-        x1,y1,x2,y2 = line
+        x1,y1,x2,y2 = line[0]
         
-        if x1 == x2:
+        if abs(x1 - x2) < tilt_threshold:
             if y1 < y2:
                 z = y1
                 y1 = y2
                 y2 = z
             categorized_normalized_lines['vertical'].append((x1, y1, x2, y2))
-        elif y1 == y2:
+        elif abs(y1 - y2) < tilt_threshold:
             if x1 > x2:
                 z = x1
                 x1 = x2
                 x2 = z                
             categorized_normalized_lines['horizontal'].append((x1, y1, x2, y2))
+        else:
+            print(f'This line does not fit categorization: ({line[0]})')
 
     return categorized_normalized_lines
 
@@ -149,7 +160,7 @@ def trackRelation(normalized_categorized_lines, IndvDataDict, distance_threshold
 # INDIVIDUAL ID DETECTION
 #----------------------------------------
 
-img = cv2.imread('data/Pedigree1.png')
+img = cv2.imread('data/Pedigree3.png')
 img_height, img_width, _ = img.shape
 img_area = img_height * img_width
 gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -170,8 +181,6 @@ for i in range(n_boxes):
         #draw a white rectangle over the ID number (with a little extra size for buffer)
         redacted_img = cv2.rectangle(redacted_img, (x-10,y-10), (x+w+20, y+h+20), (255,255,255), -1)
 
-print('Individuals Coordinates')
-pprint(IndvIDsDict)
 
 #----------------------------------------
 # PHENOTYPE AND SEX DETECTION
@@ -224,19 +233,27 @@ raw_lines = cv2.HoughLinesP(edges,
                         lines= np.array([]),
                         rho=1, 
                         theta= np.pi/180,
-                        threshold= 100,
+                        threshold= 50,
                         minLineLength= 50,
-                        maxLineGap= 50)
+                        maxLineGap= 150)
+raw_line_img = np.copy(annotated_img)*0
+cat_norm_lines = categorize_normalize_lines(raw_lines)
+for line in raw_lines:
+    x1, y1, x2, y2 = line[0]
+    raw_line_img = cv2.line(raw_line_img, (x1,y1), (x2,y2), (255,255,255), 5)
 line_img = np.copy(annotated_img)*0
-lines = merge_duplicate_lines(raw_lines)
-cat_norm_lines = categorize_normalize_lines(lines)
+lines = merge_duplicate_lines(cat_norm_lines)
+print(f"Number Vertical Lines: {len(lines['vertical'])}")
+print(f"Number Horizontal Lines: {len(lines['horizontal'])}")
+for direction in lines.keys():
+    for line in lines[direction]:
+        x1, y1, x2, y2 = line
+        line_img = cv2.line(line_img, (x1,y1), (x2,y2), (255,255,255), 5)
 
-trial_s_coord = (569,1221)
-IndvIDsDict, connection_lines = trackRelation(cat_norm_lines, IndvIDsDict)
 
-for line in lines:
-    x1, y1, x2, y2 = line
-    line_img = cv2.line(line_img, (x1,y1), (x2,y2), (255,255,255), 5)
+
+IndvIDsDict, connection_lines = trackRelation(lines, IndvIDsDict)
+
 
 for line in connection_lines:
     x1, y1, x2, y2 = line
@@ -255,8 +272,9 @@ pprint(IndvIDsDict)
 
 
 # annotated_img = cv2.addWeighted(annotated_img, 0.8, line_img, 0.2, 0)
-
+cv2.imshow('dark_contours', threshold_dark)
 cv2.imshow('redacted', redacted_img)
+cv2.imshow('raw_lines', raw_line_img)
 cv2.imshow('lines', line_img)
 cv2.imshow('annotated', annotated_img)
 k = cv2.waitKey(0)
