@@ -15,7 +15,7 @@ def closestLabel(marker_coords, label_dict):
     closest_distance = math.inf
     closestLabel = None
     for label in label_dict.keys():
-        label_x, label_y, label_w, label_h = label_dict[label]
+        label_x, label_y, label_w, label_h = label_dict[label]['label_coords']
         label_coords = ((label_x + label_w/2), (label_y + label_h/2))
         distance = linDist(marker_coords, label_coords)
         if distance < closest_distance:
@@ -70,70 +70,80 @@ def categorize_normalize_lines(lines):
 
 def trackRelation(normalized_categorized_lines, IndvDataDict, distance_threshold = 25):
     connection_lines = []
-    starting_coords = []
-    #find initional starting coordinates
+
     for IndvID in IndvDataDict.keys():
-        x_left, y_top, w, h = IndvIDsDict[IndvID]
+        inheritence_known = False
+        #finding starting coordinate (top anchor)
+        x_left, y_top, w, h = IndvIDsDict[IndvID]['node_coords']
         x_mid = x_left + w/2
         top_center_coord = (x_mid, y_top)
+        #finding if there is veritcal line close to top anchor (i.e. if inheritence is known)
         for vert_line in normalized_categorized_lines['vertical']:
             Vx1,Vy1,Vx2,Vy2 = vert_line
-            if linDist(top_center_coord, (Vx1,Vy1)):
-                starting_coords.append((Vx1,Vy1))
-
-    for s_coord in starting_coords:
-        #find initial veritcal line
-        for vert_line in normalized_categorized_lines['vertical']:
-            Vx1,Vy1,Vx2,Vy2 = vert_line
-            if linDist(s_coord, (Vx1, Vy1)) < distance_threshold:
+            if linDist(top_center_coord, (Vx1,Vy1)) < distance_threshold:
+                start_coord = (Vx1,Vy1)
                 current_coord = (Vx2, Vy2)
+                inheritence_known = True
                 break
-        
-        #find initial horizontal
-        for horz_line in normalized_categorized_lines['horizontal']:
-            Hx1,Hy1,Hx2,Hy2 = horz_line
+
+        #checking if parental relationship was found
+        #tracing back to parents if known
+        if inheritence_known:
             Cx,Cy = current_coord
-            if abs(Cy - Hy1) < distance_threshold and (Hx1 < Cx and Cx < Hx2):
-                endpoints = horz_line
-                break
-        
-        #find secondary vertical (if it exists)
-        next_coord= 0
-        for vert_line in normalized_categorized_lines['vertical']:
-            Vx1,Vy1,Vx2,Vy2 = vert_line
-            Cx1,Cy1,Cx2,Cy2 = endpoints
-            if abs(Cy1 - Vy1) < distance_threshold and (Cx1 < Vx1 and Vx1 < Cx2):
-                next_coord = (Vx2, Vy2)
-                break
-        
-        #check if secondary vertical was found
-        if next_coord:
-            current_coord = next_coord
-            #find secondary horizontal
+            #find initial horizontal
             for horz_line in normalized_categorized_lines['horizontal']:
                 Hx1,Hy1,Hx2,Hy2 = horz_line
-                Cx,Cy = current_coord
-                if abs(Cy - Hy1) < distance_threshold and (Hx1 < Cx and Cx < Hx2):
+                if abs(Cy - Hy1) < distance_threshold and (Hx1-distance_threshold < Cx and Cx < Hx2+distance_threshold):
                     endpoints = horz_line
                     break
-        
-    
-        fx1,fy1,fx2,fy2 = endpoints
-        sx, sy = s_coord
-        connection_lines = connection_lines + [(sx,sy,fx1,fy1), (sx,sy,fx2,fy2)]
-    return connection_lines
-
             
-                
+            #find secondary vertical (if it exists)
+            secondary_exists = False
+            next_coord= 0
+            Cx1,Cy1,Cx2,Cy2 = endpoints
+            for vert_line in normalized_categorized_lines['vertical']:
+                Vx1,Vy1,Vx2,Vy2 = vert_line
+                if abs(Cy1 - Vy1) < distance_threshold and (Cx1-distance_threshold < Vx1 and Vx1 < Cx2+distance_threshold):
+                    next_coord = (Vx2, Vy2)
+                    secondary_exists = True
+                    break
+            
+            #check if secondary vertical was found
+            if secondary_exists:
+                current_coord = next_coord
+                Cx,Cy = current_coord
+                #find secondary horizontal
+                for horz_line in normalized_categorized_lines['horizontal']:
+                    Hx1,Hy1,Hx2,Hy2 = horz_line
+                    if abs(Cy - Hy1) < distance_threshold and (Hx1-distance_threshold < Cx and Cx < Hx2+distance_threshold):
+                        endpoints = horz_line
+                        break
+            
+        
+            fx1,fy1,fx2,fy2 = endpoints
+            sx, sy = start_coord
+            connection_lines = connection_lines + [(sx,sy,fx1,fy1), (sx,sy,fx2,fy2)]
+
+            #determining indivudals associated with endpoints
+            
+            for ParentID in IndvDataDict.keys():
+                #parent anchor points
+                ParentCoords = IndvDataDict[ParentID]['node_coords']
+                px_left, py_top, pw, ph = ParentCoords
+                p_left_anchor = (px_left, py_top + ph/2)
+                p_right_anchor = (px_left + pw, py_top + ph/2)
+                if linDist(p_right_anchor, (fx1,fy1)) < distance_threshold:
+                    IndvDataDict[IndvID]['PaternalID'] = ParentID
+                if linDist(p_left_anchor, (fx2,fy2)) < distance_threshold:
+                    IndvDataDict[IndvID]['MaternalID'] = ParentID
 
 
-                
 
 
-         
+
+    return IndvDataDict, connection_lines
 
 
-    
 
 #----------------------------------------
 # INDIVIDUAL ID DETECTION
@@ -155,7 +165,8 @@ for i in range(n_boxes):
         IndvID = TextData['text'][i]
         (x,y,w,h) = (TextData['left'][i], TextData['top'][i], TextData['width'][i], TextData['height'][i])
         display_coords = (x,y,w,h)
-        IndvIDsDict[IndvID] = display_coords
+        IndvIDsDict[IndvID] = {}
+        IndvIDsDict[IndvID]['label_coords'] = display_coords
         #draw a white rectangle over the ID number (with a little extra size for buffer)
         redacted_img = cv2.rectangle(redacted_img, (x-10,y-10), (x+w+20, y+h+20), (255,255,255), -1)
 
@@ -191,7 +202,7 @@ for phenotype in Phenotypes:
 
             center_coords = ((x + w/2), y + h/2)
             label = closestLabel(marker_coords= center_coords, label_dict= IndvIDsDict)
-
+            IndvIDsDict[label]['node_coords'] = (x,y,w,h)
             xmid = int(x - 2*w)
             ybelow = int(y + 5*h/2)
 
@@ -221,7 +232,7 @@ lines = merge_duplicate_lines(raw_lines)
 cat_norm_lines = categorize_normalize_lines(lines)
 
 trial_s_coord = (569,1221)
-connection_lines = trackRelation(cat_norm_lines, IndvIDsDict)
+IndvIDsDict, connection_lines = trackRelation(cat_norm_lines, IndvIDsDict)
 
 for line in lines:
     x1, y1, x2, y2 = line
@@ -236,7 +247,8 @@ print('Normalized Connection Coordinates')
 pprint(cat_norm_lines)
        
 
-
+print('Individuals with Parental Relations')
+pprint(IndvIDsDict)
 
 
 
