@@ -58,7 +58,7 @@ def categorize_normalize_lines(lines, tilt_threshold = 10):
     'vertical': [],
     'horizontal': []
     }
-    print(f'Number of Lines Detected: {len(lines)}')
+    
     for line in lines:
         x1,y1,x2,y2 = line[0]
         
@@ -83,9 +83,11 @@ def trackRelation(normalized_categorized_lines, IndvDataDict, distance_threshold
     connection_lines = []
 
     for IndvID in IndvDataDict.keys():
+        IndvDataDict[IndvID]['PaternalID'] = 0
+        IndvDataDict[IndvID]['MaternalID'] = 0
         inheritence_known = False
         #finding starting coordinate (top anchor)
-        x_left, y_top, w, h = IndvIDsDict[IndvID]['node_coords']
+        x_left, y_top, w, h = IndvDataDict[IndvID]['node_coords']
         x_mid = x_left + w/2
         top_center_coord = (x_mid, y_top)
         #finding if there is veritcal line close to top anchor (i.e. if inheritence is known)
@@ -147,8 +149,10 @@ def trackRelation(normalized_categorized_lines, IndvDataDict, distance_threshold
                 p_right_anchor = (px_left + pw, py_top + ph/2)
                 if linDist(p_right_anchor, (fx1,fy1)) < distance_threshold:
                     IndvDataDict[IndvID]['PaternalID'] = ParentID
+                    continue
                 if linDist(p_left_anchor, (fx2,fy2)) < distance_threshold:
                     IndvDataDict[IndvID]['MaternalID'] = ParentID
+                    continue
 
 
 
@@ -156,115 +160,124 @@ def trackRelation(normalized_categorized_lines, IndvDataDict, distance_threshold
 
     return IndvDataDict, connection_lines
 
+def pedigree_processing(FamID):
+    #----------------------------------------
+    # INDIVIDUAL ID DETECTION
+    #----------------------------------------
+    img = cv2.imread(f'data/{FamID}.png')
+    img_height, img_width, _ = img.shape
+    img_area = img_height * img_width
+    gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
 
-#----------------------------------------
-# INDIVIDUAL ID DETECTION
-#----------------------------------------
+    redacted_img = np.copy(gray_img)
+    TextData = pytesseract.image_to_data(gray_img, output_type= pytesseract.Output.DICT)
+    IndvIDsDict = {}
+    
+    n_boxes = len(TextData['text'])
 
-img = cv2.imread('data/Pedigree4.png')
-img_height, img_width, _ = img.shape
-img_area = img_height * img_width
-gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-
-redacted_img = np.copy(gray_img)
-TextData = pytesseract.image_to_data(gray_img, output_type= pytesseract.Output.DICT)
-IndvIDsDict = {}
-n_boxes = len(TextData['text'])
-
-for i in range(n_boxes):
-    if len(TextData['text'][i]) > 0 and TextData['text'][i][0] != ' ':
-        IndvID = TextData['text'][i]
-        (x,y,w,h) = (TextData['left'][i], TextData['top'][i], TextData['width'][i], TextData['height'][i])
-        display_coords = (x,y,w,h)
-        IndvIDsDict[IndvID] = {}
-        IndvIDsDict[IndvID]['label_coords'] = display_coords
-        #draw a white rectangle over the ID number (with a little extra size for buffer)
-        redacted_img = cv2.rectangle(redacted_img, (x-10,y-10), (x+w+20, y+h+20), (255,255,255), -1)
-
-
-#----------------------------------------
-# PHENOTYPE AND SEX DETECTION
-#----------------------------------------
-annotated_img = np.copy(gray_img)
-
-_, threshold_light = cv2.threshold(redacted_img, 250, 255, cv2.THRESH_BINARY)
-_, threshold_dark = cv2.threshold(redacted_img, 5, 255, cv2.THRESH_BINARY_INV)
-
-light_contours, _ = cv2.findContours(threshold_light, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-dark_contours, _ = cv2.findContours(threshold_dark, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-
-Phenotypes = ['+', '-']
-for phenotype in Phenotypes:
-    contours = light_contours if phenotype == '-' else dark_contours
-    for i, contour in enumerate(contours):
-
-        epsilon =0.01 * cv2.arcLength(contour, closed= True)
-        approx = cv2.approxPolyDP(contour, 1, True)
-        
-        x,y,w,h = cv2.boundingRect(approx)
-        bounding_area = w*h
-        if bounding_area < 0.25*img_area and bounding_area > 0.0001*img_area:
-
-            
-
+    for i in range(n_boxes):
+        if len(TextData['text'][i]) > 0 and TextData['text'][i][0] != ' ':
+            IndvID = TextData['text'][i]
+            (x,y,w,h) = (TextData['left'][i], TextData['top'][i], TextData['width'][i], TextData['height'][i])
+            display_coords = (x,y,w,h)
+            IndvIDsDict[IndvID] = {}
+            IndvIDsDict[IndvID]['label_coords'] = display_coords
+            #draw a white rectangle over the ID number (with a little extra size for buffer)
             redacted_img = cv2.rectangle(redacted_img, (x-10,y-10), (x+w+20, y+h+20), (255,255,255), -1)
 
-            center_coords = ((x + w/2), y + h/2)
-            label = closestLabel(marker_coords= center_coords, label_dict= IndvIDsDict)
-            IndvIDsDict[label]['node_coords'] = (x,y,w,h)
-            xmid = int(x - 2*w)
-            ybelow = int(y + 5*h/2)
 
-            display_coords = (xmid, ybelow)
-            colour = (0,0,0)
-            font = cv2.FONT_HERSHEY_DUPLEX
+    #----------------------------------------
+    # PHENOTYPE AND SEX DETECTION
+    #----------------------------------------
+    annotated_img = np.copy(gray_img)
 
-            if len(approx) < 10:
-                cv2.putText(annotated_img, label + ' ' + phenotype + ' male ', display_coords, font, 1, colour, 1)
-            else:
-                cv2.putText(annotated_img, label + ' ' + phenotype+ ' female ', display_coords, font, 1, colour, 1)
+    _, threshold_light = cv2.threshold(redacted_img, 250, 255, cv2.THRESH_BINARY)
+    _, threshold_dark = cv2.threshold(redacted_img, 5, 255, cv2.THRESH_BINARY_INV)
+
+    light_contours, _ = cv2.findContours(threshold_light, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    dark_contours, _ = cv2.findContours(threshold_dark, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    Phenotypes = ['+', '-']
+    for phenotype in Phenotypes:
+        contours = light_contours if phenotype == '-' else dark_contours
+        for i, contour in enumerate(contours):
+
+            epsilon =0.01 * cv2.arcLength(contour, closed= True)
+            approx = cv2.approxPolyDP(contour, 1, True)
+            
+            x,y,w,h = cv2.boundingRect(approx)
+            bounding_area = w*h
+            if bounding_area < 0.25*img_area and bounding_area > 0.0001*img_area:
+
+                
+
+                redacted_img = cv2.rectangle(redacted_img, (x-10,y-10), (x+w+20, y+h+20), (255,255,255), -1)
+
+                center_coords = ((x + w/2), y + h/2)
+                label = closestLabel(marker_coords= center_coords, label_dict= IndvIDsDict)
+                IndvIDsDict[label]['node_coords'] = (x,y,w,h)
+                IndvIDsDict[label]['Phenotype'] = 1 if phenotype == '-' else 2
+                xmid = int(x - 2*w)
+                ybelow = int(y + 5*h/2)
+
+                display_coords = (xmid, ybelow)
+                colour = (0,0,0)
+                font = cv2.FONT_HERSHEY_DUPLEX
+
+                if len(approx) < 10:
+                    cv2.putText(annotated_img, label + ' ' + phenotype + ' male ', display_coords, font, 1, colour, 1)
+                    IndvIDsDict[label]['Sex'] = 1
+                else:
+                    cv2.putText(annotated_img, label + ' ' + phenotype+ ' female ', display_coords, font, 1, colour, 1)
+                    IndvIDsDict[label]['Sex'] = 2
 
 
-#----------------------------------------
-# RELATION LINE DETECTION
-#----------------------------------------
-edges = cv2.Canny(redacted_img, 250, 255)
-raw_lines = cv2.HoughLinesP(edges,
-                        lines= np.array([]),
-                        rho=1, 
-                        theta= np.pi/180,
-                        threshold= 50,
-                        minLineLength= 50,
-                        maxLineGap= 150)
+    #----------------------------------------
+    # RELATION LINE DETECTION
+    #----------------------------------------
+    edges = cv2.Canny(redacted_img, 250, 255)
+    raw_lines = cv2.HoughLinesP(edges,
+                            lines= np.array([]),
+                            rho=1, 
+                            theta= np.pi/180,
+                            threshold= 50,
+                            minLineLength= 50,
+                            maxLineGap= 150)
 
-cat_norm_lines = categorize_normalize_lines(raw_lines)
+    cat_norm_lines = categorize_normalize_lines(raw_lines)
 
-line_img = np.copy(annotated_img)*0
-lines = merge_duplicate_lines(cat_norm_lines)
+    line_img = np.copy(annotated_img)*0
+    lines = merge_duplicate_lines(cat_norm_lines)
 
-for direction in lines.keys():
-    for line in lines[direction]:
+    for direction in lines.keys():
+        for line in lines[direction]:
+            x1, y1, x2, y2 = line
+            line_img = cv2.line(line_img, (x1,y1), (x2,y2), (255,255,255), 5)
+
+    IndvIDsDict, connection_lines = trackRelation(lines, IndvIDsDict)
+
+    for line in connection_lines:
         x1, y1, x2, y2 = line
         line_img = cv2.line(line_img, (x1,y1), (x2,y2), (255,255,255), 5)
 
-IndvIDsDict, connection_lines = trackRelation(lines, IndvIDsDict)
+    PedFile = f'data/FAM{FamilyID[-1]}_automatic_pedigree.ped'
+    PedFileDataFields = ['PaternalID', 'MaternalID', 'Sex', 'Phenotype']
+    with open(PedFile, 'w') as pf:
+        for IndvID in IndvIDsDict.keys():
+            pf.write(f'FAM{FamilyID[-1]} {IndvID}')
+            for field in PedFileDataFields:
+                pf.write(f' {IndvIDsDict[IndvID][field]}')
+            pf.write('\n')
 
-for line in connection_lines:
-    x1, y1, x2, y2 = line
-    line_img = cv2.line(line_img, (x1,y1), (x2,y2), (255,255,255), 5)
-       
+    
+    return line_img
 
-print('Individuals with Parental Relations')
-pprint(IndvIDsDict)
+FamilyIDs = ['Pedigree1', 'Pedigree2', 'Pedigree3', 'Pedigree4']
 
-
-
-
-cv2.imshow('lines', line_img)
-cv2.imshow('annotated', annotated_img)
+LineImages = {}
+for FamilyID in FamilyIDs:
+    line_img = pedigree_processing(FamilyID)
+    cv2.imshow(f'{FamilyID} lines', line_img)
 k = cv2.waitKey(0)
-if k == ord('s'):
-    cv2.imwrite('data/Pedigree1AutoRedacted.png', annotated_img)
 cv2.destroyAllWindows
