@@ -273,9 +273,9 @@ def pedigree_processing(FamID):
     for phenotype in Phenotypes:
         contours = light_contours if phenotype == '-' else dark_contours
         for i, contour in enumerate(contours):
-
-            epsilon =0.01 * cv2.arcLength(contour, closed= True)
-            approx = cv2.approxPolyDP(contour, 1, True)
+            #scaling epsilon used in polyaprox based on perimeter of the contour
+            epsilon =0.02 * cv2.arcLength(contour, closed= True)
+            approx = cv2.approxPolyDP(contour, epsilon, True)
             
             x,y,w,h = cv2.boundingRect(approx)
             bounding_area = w*h
@@ -294,7 +294,7 @@ def pedigree_processing(FamID):
                 colour = (0,0,0)
                 font = cv2.FONT_HERSHEY_DUPLEX
 
-                if len(approx) < 15:
+                if len(approx) == 4:
                     cv2.putText(annotated_img, label + ' ' + phenotype + ' male ', display_coords, font, 1, colour, 1)
                     IndvIDsDict[label]['Sex'] = 1
                 else:
@@ -348,7 +348,7 @@ def pedigree_processing(FamID):
     
     return line_img#, redacted_img
 
-FamilyIDs = ['FAM4']
+FamilyIDs = ['FAM1', 'FAM2', 'FAM3', 'FAM4']
 
 for FamilyID in FamilyIDs:
     line_img = pedigree_processing(FamilyID)
