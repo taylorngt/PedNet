@@ -1,9 +1,21 @@
 import pytesseract
 import cv2
-import re
 from pprint import pprint
 import math
 import numpy as np
+from PIL import Image
+from PIL import ImageEnhance
+
+def image_enhance(FamID, upscale_factor = 10):
+
+    input_path = f"data/{FamID}.png"
+    img = Image.open(input_path)
+
+    new_size = (img.width * upscale_factor, img.height * upscale_factor)
+    upscaled_img = img.resize(new_size, Image.LANCZOS)
+
+    output_path = f"data/{FamID}_upscaled_{upscale_factor}x.png"
+    upscaled_img.save(output_path, quality= 95)
 
 def linDist(coord1, coord2):
     x1, y1 = coord1
@@ -23,45 +35,97 @@ def closestLabel(marker_coords, label_dict):
             closestLabel = label
     return closestLabel
 
-def merge_duplicate_lines(norm_cat_lines, angle_threshold= 10, distance_threshold= 100):
-    directional_merged_lines = {}
-    for direction in norm_cat_lines.keys():
-        merged_lines = []
-        for line in norm_cat_lines[direction]:
-            x1, y1, x2, y2 = line
-            duplicate = False
-            for i in range(len(merged_lines)):
-                mx1, my1, mx2, my2 = merged_lines[i]
-                line_angle = np.arctan2((y2-y1), (x2-x2)) 
-                merged_line_angle = np.arctan2((my2-my1), (mx2-mx2)) 
-                angle_difference = abs(np.degrees(line_angle - merged_line_angle))
+def merge_duplicate_lines(norm_cat_lines, angle_threshold= 10, distance_threshold= 50):
+    
+    merged_horizontal_lines = []
+    for horz_line in norm_cat_lines['horizontal']:
+        horz_duplicate = False
+        a,hy1,b,hy2 = horz_line
 
-                if angle_difference < angle_threshold and (linDist((x1,y1), (mx1,my1)) < distance_threshold or linDist((x2,y2), (mx2,my2)) < distance_threshold):
-                    duplicate = True
-                    #if the duplicate is longer choose the longer of the two
-                    if linDist((mx1,my1),(mx2,my2)) < linDist((x1,y1),(x2,y2)):
-                        merged_lines[i] = (x1,y1,x2,y2)
-                    #if the a single line segment was chopped in two
-                    
-                    #breaks loop through merged lines since we determined it to be duplicate
+        for i in range(len(merged_horizontal_lines)):
+            c,mhy1,d,mhy2 = merged_horizontal_lines[i]
+            
+            #sufficiently close verically
+            if abs(mhy1 - hy1) < distance_threshold:
+                #forward subline
+                if a <= c and d <= b:
+                    merged_horizontal_lines[i] = (a,hy1,b,hy1)
+                    horz_duplicate = True
                     break
-            if not duplicate:
-                merged_lines.append(line)
+                #overlap right
+                elif a <= c and c <= b and b < d:
+                    merged_horizontal_lines[i] = (a,hy1,d,hy1)
+                    horz_duplicate = True
+                    break
+                #reverse subline
+                elif c < a and b < d:
+                    horz_duplicate = True
+                    break
+                #overlap left
+                elif c < a and a <= d and d < b:
+                    merged_horizontal_lines[i] = (c,hy1,b,hy2)
+                    horz_duplicate = True
+                    break
+                else:
+                    if not (b < c or d < a):
+                        print('Not possible')
+        if not horz_duplicate:
+            merged_horizontal_lines.append(horz_line)
 
-        directional_merged_lines[direction] = merged_lines
+    
+    merged_vertical_lines = []
+    for vert_line in norm_cat_lines['vertical']:
+        vert_duplicate = False
+        vx1,a,vx2,b = vert_line
+
+        for j in range(len(merged_vertical_lines)):
+            mvx1,c,mvx2,d = merged_vertical_lines[j]
+            
+            #sufficiently close horizontally
+            if abs(mvx1 - vx1) < distance_threshold:
+                #forward subline
+                if a >= c and d >= b:
+                    merged_vertical_lines[j] = (vx1,a,vx1,b)
+                    vert_duplicate = True
+                #overlap top
+                elif a >= c and c >= b and b > d:
+                    merged_vertical_lines[j] = (vx1,a,vx1,d)
+                    vert_duplicate = True
+                #reverse subline
+                elif c > a and b > d:
+                    vert_duplicate = True
+                #overlap bottom
+                elif c >= a and a >= d and d > b:
+                    merged_vertical_lines[j] = (vx1,c,vx1,b)
+                    vert_duplicate = True
+                else:
+                    if not (b > c or d > a):
+                        print('Not Possible')
+        if not vert_duplicate:
+            merged_vertical_lines.append(vert_line)
+
+    directional_merged_lines = {
+        'vertical': merged_vertical_lines,
+        'horizontal': merged_horizontal_lines
+    }
     
     return directional_merged_lines
 
 
-def categorize_normalize_lines(lines, tilt_threshold = 10):
+def categorize_normalize_lines(lines, img_width, img_height, tilt_threshold = 200):
     categorized_normalized_lines = {
     'vertical': [],
     'horizontal': []
     }
-    
+
     for line in lines:
         x1,y1,x2,y2 = line[0]
-        
+        #deleting exessively long and short duplicates/artifacts
+        if (
+            (abs(x2-x1) > 0.8*img_width or abs(y2-y1) > 0.8*img_height) or
+            (abs(x2-x1) < 0.01*img_width and abs(y2-y1) < 0.01*img_height)
+        ):
+            continue
         if abs(x1 - x2) < tilt_threshold:
             if y1 < y2:
                 z = y1
@@ -79,7 +143,7 @@ def categorize_normalize_lines(lines, tilt_threshold = 10):
 
     return categorized_normalized_lines
 
-def trackRelation(normalized_categorized_lines, IndvDataDict, distance_threshold = 25):
+def trackRelation(normalized_categorized_lines, IndvDataDict):
     connection_lines = []
 
     for IndvID in IndvDataDict.keys():
@@ -88,8 +152,10 @@ def trackRelation(normalized_categorized_lines, IndvDataDict, distance_threshold
         inheritence_known = False
         #finding starting coordinate (top anchor)
         x_left, y_top, w, h = IndvDataDict[IndvID]['node_coords']
-        x_mid = x_left + w/2
+        x_mid = int(x_left + w/2)
         top_center_coord = (x_mid, y_top)
+        IndvDataDict[IndvID]['lat_coords'] = [(int(x_left+w), int(y_top+(h/2))), (x_left, int(y_top+(h/2)))]
+        distance_threshold = h/2
         #finding if there is veritcal line close to top anchor (i.e. if inheritence is known)
         for vert_line in normalized_categorized_lines['vertical']:
             Vx1,Vy1,Vx2,Vy2 = vert_line
@@ -97,15 +163,19 @@ def trackRelation(normalized_categorized_lines, IndvDataDict, distance_threshold
                 start_coord = (Vx1,Vy1)
                 current_coord = (Vx2, Vy2)
                 inheritence_known = True
-                break
 
+                break
+        if not inheritence_known:
+            print(f'Inheritence not known for {IndvID}: no initial root found')
         #checking if parental relationship was found
         #tracing back to parents if known
         if inheritence_known:
+            print(f'Inheritence known for {IndvID}')
             Cx,Cy = current_coord
             #find initial horizontal
             for horz_line in normalized_categorized_lines['horizontal']:
                 Hx1,Hy1,Hx2,Hy2 = horz_line
+                #checking if horizontal line is at same elevation as current y and current x is between enpoints
                 if abs(Cy - Hy1) < distance_threshold and (Hx1-distance_threshold < Cx and Cx < Hx2+distance_threshold):
                     endpoints = horz_line
                     break
@@ -119,13 +189,12 @@ def trackRelation(normalized_categorized_lines, IndvDataDict, distance_threshold
                 #adding distance threshold to Vy2 inorder to trncate the veritcal line from the top
                 #this avoid seeing downward point sibling veritcal lines and progressing along that instead of parental lines
                 if (Vy1+distance_threshold > Cy1 and Cy1 > Vy2+distance_threshold) and (Cx1-distance_threshold < Vx1 and Vx1 < Cx2+distance_threshold):
-                    next_coord = (Vx2, Vy2)
+                    current_coord = (Vx2, Vy2)
                     secondary_exists = True
                     break
             
             #check if secondary vertical was found
             if secondary_exists:
-                current_coord = next_coord
                 Cx,Cy = current_coord
                 #find secondary horizontal
                 for horz_line in normalized_categorized_lines['horizontal']:
@@ -154,17 +223,19 @@ def trackRelation(normalized_categorized_lines, IndvDataDict, distance_threshold
                     IndvDataDict[IndvID]['MaternalID'] = ParentID
                     continue
 
-
-
-
-
     return IndvDataDict, connection_lines
 
 def pedigree_processing(FamID):
     #----------------------------------------
+    # ENHANCE IMAGE
+    #----------------------------------------
+    upscale_factor = 10
+    image_enhance(FamID, upscale_factor)
+
+    #----------------------------------------
     # INDIVIDUAL ID DETECTION
     #----------------------------------------
-    img = cv2.imread(f'data/{FamID}.png')
+    img = cv2.imread(f'data/{FamID}_upscaled_{upscale_factor}x.png')
     img_height, img_width, _ = img.shape
     img_area = img_height * img_width
     gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -208,11 +279,9 @@ def pedigree_processing(FamID):
             
             x,y,w,h = cv2.boundingRect(approx)
             bounding_area = w*h
-            if bounding_area < 0.25*img_area and bounding_area > 0.0001*img_area:
+            if bounding_area < 0.25*img_area and bounding_area > 0.0001*img_area and abs(w-h) < (min(w,h) * 0.1):
 
-                
-
-                redacted_img = cv2.rectangle(redacted_img, (x-10,y-10), (x+w+20, y+h+20), (255,255,255), -1)
+                redacted_img = cv2.rectangle(redacted_img, (x-35, y-35), (x+w+50, y+h+50), (255,255,255), -1)
 
                 center_coords = ((x + w/2), y + h/2)
                 label = closestLabel(marker_coords= center_coords, label_dict= IndvIDsDict)
@@ -225,7 +294,7 @@ def pedigree_processing(FamID):
                 colour = (0,0,0)
                 font = cv2.FONT_HERSHEY_DUPLEX
 
-                if len(approx) < 10:
+                if len(approx) < 15:
                     cv2.putText(annotated_img, label + ' ' + phenotype + ' male ', display_coords, font, 1, colour, 1)
                     IndvIDsDict[label]['Sex'] = 1
                 else:
@@ -236,32 +305,37 @@ def pedigree_processing(FamID):
     #----------------------------------------
     # RELATION LINE DETECTION
     #----------------------------------------
-    edges = cv2.Canny(redacted_img, 250, 255)
+    edges = cv2.Canny(redacted_img, 0, 50, apertureSize= 3)
     raw_lines = cv2.HoughLinesP(edges,
                             lines= np.array([]),
                             rho=1, 
                             theta= np.pi/180,
                             threshold= 50,
-                            minLineLength= 50,
-                            maxLineGap= 150)
-
-    cat_norm_lines = categorize_normalize_lines(raw_lines)
+                            minLineLength= 5,
+                            maxLineGap= img_width*0.1)
 
     line_img = np.copy(annotated_img)*0
-    lines = merge_duplicate_lines(cat_norm_lines)
+    cat_norm_lines = categorize_normalize_lines(raw_lines, img_width, img_height)
 
+    lines = merge_duplicate_lines(cat_norm_lines)
     for direction in lines.keys():
+        print(direction)
         for line in lines[direction]:
+            print(line)
             x1, y1, x2, y2 = line
             line_img = cv2.line(line_img, (x1,y1), (x2,y2), (255,255,255), 5)
-
+        print()
+    
     IndvIDsDict, connection_lines = trackRelation(lines, IndvIDsDict)
 
     for line in connection_lines:
         x1, y1, x2, y2 = line
         line_img = cv2.line(line_img, (x1,y1), (x2,y2), (255,255,255), 5)
-
-    PedFile = f'data/FAM{FamilyID[-1]}_automatic_pedigree.ped'
+    for individual in IndvIDsDict.keys():
+        for coord in IndvIDsDict[individual]['lat_coords']:
+            line_img = cv2.circle(line_img, coord, radius=10, color=(255,255,255), thickness=-1)
+    
+    PedFile = f'data/{FamID}_automatic_pedigree.ped'
     PedFileDataFields = ['PaternalID', 'MaternalID', 'Sex', 'Phenotype']
     with open(PedFile, 'w') as pf:
         for IndvID in IndvIDsDict.keys():
@@ -269,15 +343,16 @@ def pedigree_processing(FamID):
             for field in PedFileDataFields:
                 pf.write(f' {IndvIDsDict[IndvID][field]}')
             pf.write('\n')
+    pprint(IndvIDsDict)
 
     
-    return line_img
+    return line_img#, redacted_img
 
-FamilyIDs = ['Pedigree1', 'Pedigree2', 'Pedigree3', 'Pedigree4']
+FamilyIDs = ['FAM4']
 
-LineImages = {}
 for FamilyID in FamilyIDs:
     line_img = pedigree_processing(FamilyID)
     cv2.imshow(f'{FamilyID} lines', line_img)
+    #cv2.imshow(f'{FamilyID} redacted', redacted_img)
 k = cv2.waitKey(0)
 cv2.destroyAllWindows
