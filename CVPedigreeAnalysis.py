@@ -5,16 +5,15 @@ import math
 import numpy as np
 from PIL import Image
 from PIL import ImageEnhance
+from os import listdir
 
-def image_enhance(FamID, upscale_factor = 10):
+def image_enhance(input_path, output_path, upscale_factor = 10):
 
-    input_path = f"data/{FamID}.png"
     img = Image.open(input_path)
 
     new_size = (img.width * upscale_factor, img.height * upscale_factor)
     upscaled_img = img.resize(new_size, Image.LANCZOS)
 
-    output_path = f"data/{FamID}_upscaled_{upscale_factor}x.png"
     upscaled_img.save(output_path, quality= 95)
 
 def linDist(coord1, coord2):
@@ -165,12 +164,10 @@ def trackRelation(normalized_categorized_lines, IndvDataDict):
                 inheritence_known = True
 
                 break
-        if not inheritence_known:
-            print(f'Inheritence not known for {IndvID}: no initial root found')
+
         #checking if parental relationship was found
         #tracing back to parents if known
         if inheritence_known:
-            print(f'Inheritence known for {IndvID}')
             Cx,Cy = current_coord
             #find initial horizontal
             for horz_line in normalized_categorized_lines['horizontal']:
@@ -230,12 +227,16 @@ def pedigree_processing(FamID):
     # ENHANCE IMAGE
     #----------------------------------------
     upscale_factor = 10
-    image_enhance(FamID, upscale_factor)
+    raw_image_path = f'data/Pedigree_Images/Raw_Images/{FamID}.png'
+    upscaled_image_path = f'data/Pedigree_Images/Upscaled_Images/{FamID}_upscaled{upscale_factor}x.png'
+    image_enhance(input_path= raw_image_path,
+                  output_path= upscaled_image_path,
+                  upscale_factor= upscale_factor)
 
     #----------------------------------------
     # INDIVIDUAL ID DETECTION
     #----------------------------------------
-    img = cv2.imread(f'data/{FamID}_upscaled_{upscale_factor}x.png')
+    img = cv2.imread(upscaled_image_path)
     img_height, img_width, _ = img.shape
     img_area = img_height * img_width
     gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -279,9 +280,9 @@ def pedigree_processing(FamID):
             
             x,y,w,h = cv2.boundingRect(approx)
             bounding_area = w*h
-            if bounding_area < 0.25*img_area and bounding_area > 0.0001*img_area and abs(w-h) < (min(w,h) * 0.1):
+            if bounding_area < 0.25*img_area and bounding_area > 0.0001*img_area and abs(w-h) < (min(w,h) * 0.25):
 
-                redacted_img = cv2.rectangle(redacted_img, (x-35, y-35), (x+w+50, y+h+50), (255,255,255), -1)
+                redacted_img = cv2.rectangle(redacted_img, (x-35, y-40), (x+w+50, y+h+60), (255,255,255), -1)
 
                 center_coords = ((x + w/2), y + h/2)
                 label = closestLabel(marker_coords= center_coords, label_dict= IndvIDsDict)
@@ -303,7 +304,7 @@ def pedigree_processing(FamID):
 
 
     #----------------------------------------
-    # RELATION LINE DETECTION
+    # RELATION DETECTION
     #----------------------------------------
     edges = cv2.Canny(redacted_img, 0, 50, apertureSize= 3)
     raw_lines = cv2.HoughLinesP(edges,
@@ -319,12 +320,9 @@ def pedigree_processing(FamID):
 
     lines = merge_duplicate_lines(cat_norm_lines)
     for direction in lines.keys():
-        print(direction)
         for line in lines[direction]:
-            print(line)
             x1, y1, x2, y2 = line
             line_img = cv2.line(line_img, (x1,y1), (x2,y2), (255,255,255), 5)
-        print()
     
     IndvIDsDict, connection_lines = trackRelation(lines, IndvIDsDict)
 
@@ -335,24 +333,28 @@ def pedigree_processing(FamID):
         for coord in IndvIDsDict[individual]['lat_coords']:
             line_img = cv2.circle(line_img, coord, radius=10, color=(255,255,255), thickness=-1)
     
-    PedFile = f'data/{FamID}_automatic_pedigree.ped'
+    #----------------------------------------
+    # Pedfile Generation
+    #----------------------------------------
+    PedFile = f'data/PedFiles/Automatic_Pedigrees/{FamID}auto.ped'
     PedFileDataFields = ['PaternalID', 'MaternalID', 'Sex', 'Phenotype']
     with open(PedFile, 'w') as pf:
         for IndvID in IndvIDsDict.keys():
-            pf.write(f'FAM{FamilyID[-1]} {IndvID}')
+            pf.write(f'{FamilyID} {IndvID}')
             for field in PedFileDataFields:
                 pf.write(f' {IndvIDsDict[IndvID][field]}')
             pf.write('\n')
-    pprint(IndvIDsDict)
 
     
-    return line_img#, redacted_img
+    return line_img
 
-FamilyIDs = ['FAM1', 'FAM2', 'FAM3', 'FAM4']
+FamilyIDs = []
+avail_ped_images = listdir('data/Pedigree_Images/Raw_Images')
+for ped_image in avail_ped_images:
+    FamilyIDs.append(ped_image[:-4])
 
 for FamilyID in FamilyIDs:
     line_img = pedigree_processing(FamilyID)
     cv2.imshow(f'{FamilyID} lines', line_img)
-    #cv2.imshow(f'{FamilyID} redacted', redacted_img)
 k = cv2.waitKey(0)
 cv2.destroyAllWindows
