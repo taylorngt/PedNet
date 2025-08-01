@@ -1,19 +1,8 @@
 import random
 import pandas as pd
 import matplotlib.pyplot as plt
-import networkx as nx
 from sklearn.metrics import accuracy_score, auc
-import pprint
-import numpy as np
-from collections import OrderedDict
-import powerlaw
-import itertools as it
-from typing import Dict, Set, Tuple
-from scipy.optimize import minimize
-import copy
-from pprint import pprint
 from PedigreeDAGAnalysis import aff, construct_pedigree_graph
-from SegregationScoring import raw_categorical_scoring
 
 
 #################### Pedigree Generator ####################
@@ -271,9 +260,9 @@ Generates a variant table with linked variant based on genotype taken from a giv
 '''
 def simulate_variant_table(family_df, sequencing_coverage, mode='AD', n_bg= 5, linked_variant = 'chr1:100000_A>T'):
     family_df.set_index('IndividualID', inplace=True)
-    samples = list(family_df.index.values)
+    samples = [int(x) for x in family_df.index.values]
 
-    #account for imcomplete sequencing coverage across a pedigree
+    #to account for imcomplete sequencing coverage across a pedigree
     sequenced_samples = []
     for sample in samples:
         sequencing_rng = random.randint(1,100)/100
@@ -285,14 +274,16 @@ def simulate_variant_table(family_df, sequencing_coverage, mode='AD', n_bg= 5, l
     #filling out linked variant table entry based on generated genotype data
     VarTable[linked_variant] = {}
     for sample in sequenced_samples:
-        VarTable[linked_variant][sample] = family_df[sample]['genotype']
+        VarTable[linked_variant][sample] = family_df.loc[sample]['Genotype']
 
     #filling in unlinked variant table entries using randomly generated gentypes
     # roughly based on an alternate allele frequency of 10%
     for i in range(n_bg):
         VarID = f'chr1:{100200+i}_G>C'
-        VarTable[VarID] = {sample : random.choice([0,1,2],[0.8, 0.18,0.02])[0] for sample in sequenced_samples}
+        VarTable[VarID] = {sample : random.choices([0,1,2],[0.8, 0.18,0.02])[0] for sample in sequenced_samples}
     
+    family_df.reset_index(inplace=True)
+
     return VarTable
 
 
@@ -307,10 +298,11 @@ def pedigree_group_generator(pedigree_count, mode, max_children, generation_coun
         if not alt_freq:
           alt_freq = random.randint(2,8)/100 if mode == 'AD' else random.randint(5,20)/100
 
-        QC_checks = 0
+        #QC check for pedigree
+        ped_QC_checks = 0
         ped_QC_pass = False
         while not ped_QC_pass:
-            QC_checks += 1
+            ped_QC_checks += 1
             ped_df = pedigree_generator(max_children= max_children,
                                         FamilyID= FamilyID,
                                         mode= mode,
@@ -322,28 +314,31 @@ def pedigree_group_generator(pedigree_count, mode, max_children, generation_coun
             affected_nodes = aff(ped_dg)
             if len(affected_nodes) > 1 and len(ped_dg.nodes()) >= (generation_count * 2):
                 ped_QC_pass = True
-            elif QC_checks >= 50:
-                print(f'{mode} {FamilyID}: Failed QC checks, included despite QC failure to prioritize futher operations')
+            elif ped_QC_checks >= 50:
+                print(f'{mode} {FamilyID}: Failed Pedigree Contruction QC checks, included despite QC failure to prioritize futher operations')
                 ped_QC_pass = True
 
+        #QC check for variant table
+        var_QC_checks = 0
         var_QC_pass = False
         while not var_QC_pass:
+            var_QC_pass += 1
             var_dict = simulate_variant_table(family_df= ped_df,
                                               sequencing_coverage= sequencing_coverage,
                                               mode= mode,
                                               n_bg= n_bg)
-            VarIDs = var_dict.keys()
+
             #checking to make sure there more than 2 seuqneced individuals in the pedigree
             #selects first varID from the list given they should have the same number of entries (number of sequenced samples)
-            if len(var_dict[var_dict[0]].keys()) > 2:
+            if len(var_dict[list(var_dict.keys())[0]]) > 2:
+                var_QC_pass = True
+            elif var_QC_checks > 50:
+                print(f'{mode} {FamilyID}: Failed VarTable QC checks, included despite QC failure to prioritize futher operations')
                 var_QC_pass = True
 
         #consider moving the categorical scoring to outside data generation
         #means you dont have to do unneccesary computation when generating multi-pedigree data sets outside of segregation scoring analysis
-        cat_score_dict = {}
-        for VarID in var_dict.keys():
-            cat_score_dict[VarID] = raw_categorical_scoring(G= ped_dg,
-                                                            gt= var_dict[VarID])
 
-        Fam_Data_Dict[FamilyID] = {'PedGraph': ped_dg, 'VarTable': var_dict, 'CategoricalScores': cat_score_dict}
+
+        Fam_Data_Dict[FamilyID] = {'PedGraph': ped_dg, 'VarTable': var_dict}
     return Fam_Data_Dict

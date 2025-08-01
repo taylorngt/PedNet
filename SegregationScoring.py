@@ -1,18 +1,11 @@
-import random
 import pandas as pd
 import matplotlib.pyplot as plt
 import networkx as nx
-from sklearn.metrics import accuracy_score, auc
-import pprint
 import numpy as np
-from collections import OrderedDict
-import powerlaw
-import itertools as it
-from typing import Dict, Set, Tuple
 from scipy.optimize import minimize
-import copy
-from pprint import pprint
 from PedigreeDAGAnalysis import generations, parents, aff, unaff, founder_influence, longest_path_length
+from PedigreeDataGeneration import pedigree_group_generator
+from IPython.display import display
 
 
 #################### MODULAR VARIANT SCORING ####################
@@ -163,36 +156,36 @@ def raw_categorical_scoring(G, gt):
 # ---------------------------------------------------------------------
 # SEGREGATION SCORING
 # ---------------------------------------------------------------------
-def segregation_network_score(G, gt, mode, Scoring_Method= 'Original', categorical_scores=0, weights={'w_edge':0.6,'w_gen':0.2,'w_bet':0.2}, verbose= False):
+def segregation_network_score(PedGraph, VariantEntry, mode, Scoring_Method= 'Original', categorical_scores=0, weights={'w_edge':0.6,'w_gen':0.2,'w_bet':0.2}, verbose= False):
 
     #Categorical Score Calculation
     if not categorical_scores:
 
-        categorical_scores = {}
+        categorical_scores = raw_categorical_scoring(PedGraph,VariantEntry)
 
-        #edge consistency
-        categorical_scores['edge_score']= edge_consistency(G,gt)
-
-        # generation continuity
-        categorical_scores['gen_score']= max(0,min(1,generation_continuity(G,gt))) #ensures genscore within [0,1]
-
-        # carrier betweenness
-        cb = carrier_betweenness(G, gt) if mode=='AR' else 1-carrier_betweenness(G, gt)
-        categorical_scores['bet_score']= max(0,min(1,cb))
+    edge_score = categorical_scores['edge_consistency']
+    
+    gen_score = max(0,min(categorical_scores['generation_continuity'],1))
+    
+    bet_score = categorical_scores['carrier_betweenness'] if mode=='AR' else 1-categorical_scores['carrier_betweenness']
+    bet_score = max(0,min(bet_score,1))
 
 
-        #Extended Categorical Scores
-        if Scoring_Method == 'Extended':
-            #when incorrect number of weights are given for extended scores, resort to default weights
-            if len(weights.keys()) < 5:
-                weights = {'w_edge': 0.6, 'w_gen': 0.1, 'w_bet': 0.1, 'w_found': 0.1, 'w_depth': 0.1}
-
+    #Extended Categorical Scores
+    if Scoring_Method == 'Extended':
+        
+        #when incorrect number of weights are given for extended scores, resort to default weights
+        if len(weights.keys()) < 5:
+            weights = {'w_edge': 0.6, 'w_gen': 0.1, 'w_bet': 0.1, 'w_found': 0.1, 'w_depth': 0.1}
+        
+        founder_score = categorical_scores['founder_influence']
+        depth_score = categorical_scores['alt_depth']
 
 
     #Weighted Score Calculation
-    score = (weights['w_edge'] * categorical_scores['edge_score']) + (weights['w_gen'] * categorical_scores['gen_score']) + (weights['w_bet'] * categorical_scores['bet_score'])
+    total_score = (weights['w_edge'] * edge_score) + (weights['w_gen'] * gen_score) + (weights['w_bet'] * bet_score)
     if Scoring_Method == 'Extended':
-        score += (weights['w_found'] * categorical_scores['found_score']) + (weights['w_depth'] * categorical_scores['depth_score'])
+        total_score += (weights['w_found'] * founder_score) + (weights['w_depth'] * depth_score)
 
     '''
     Current Scoring Metrics:
@@ -208,8 +201,276 @@ def segregation_network_score(G, gt, mode, Scoring_Method= 'Original', categoric
             cov_score (CURRENTLY UNUSED)
     '''
     if verbose:
-        print(f"Edge Score: {categorical_scores['edge_score']}; Gen Score: {categorical_scores['gen_score']}; Bet Score: {categorical_scores['bet_score']}")
+        print(f"Edge Score: {edge_score}; Generational Score: {gen_score}; Betweeness Score: {bet_score}")
         if Scoring_Method == 'Extended':
-            print(f"Found Score: {categorical_scores['found_score']}; Depth Score: {categorical_scores['depth_score']}")
-        print(f'Segregation Score: {score}')
-    return score, categorical_scores
+            print(f"Founder Score: {founder_score}; Depth Score: {depth_score}")
+        print(f'Segregation Score: {total_score}')
+    return total_score
+
+
+############## SEGREGATION SCORING WEIGHT OPTIMIZATION ##################
+
+# ---------------------------------------------------------------------
+# HELPER FUNCTIONS
+# ---------------------------------------------------------------------
+def max_score_highlighter(s):
+    is_max = s == s.max()
+    return [
+        'background-color: green' if max_score and varID == 'chr1:100000_A>T'
+        else 'background-color: red' if max_score
+        else ''
+        for varID, max_score in zip(s.index, is_max)]
+
+def pprint_weights(weights_dict):
+    for weight_name, weight_value in weights_dict.items():
+        weight_value = round(weight_value, 3)
+        print(f'{weight_name}: {weight_value}')
+    print()
+
+# ---------------------------------------------------------------------
+# MARGIN-BASED WEIGHTS OPTIMIZATION OBJECTIVE
+# ---------------------------------------------------------------------
+def margin_weight_optimization_objective(weights_lst, Multi_Ped_Dict, linked_variant, weight_names, Scoring_Method, mode):
+
+    weights_dict = {weight_names[i]: weights_lst[i] for i in range(len(weight_names))}
+    margins = []
+    for FamilyID, FamilyData in Multi_Ped_Dict.items():
+        PedGraph, VarTable = FamilyData['PedGraph'], FamilyData['VarTable']
+        CategoricalScores = FamilyData['CategoricalScores'][linked_variant]
+        linked_score = segregation_network_score(PedGraph= PedGraph,
+                                                 VariantEntry= VarTable[linked_variant],
+                                                 mode= mode,
+                                                 Scoring_Method= Scoring_Method,
+                                                 weights= weights_dict,
+                                                 categorical_scores= CategoricalScores)
+
+        unlinked_scores = []
+        for VarID, gt in VarTable.items():
+            if VarID != linked_variant:
+                CategoricalScores = FamilyData['CategoricalScores'][VarID]
+                unlinked_score = segregation_network_score(PedGraph= PedGraph,
+                                                            VariantEntry= VarTable[VarID],
+                                                            mode= mode,
+                                                            Scoring_Method= Scoring_Method,
+                                                            weights= weights_dict,
+                                                            categorical_scores= CategoricalScores)
+                unlinked_scores.append(unlinked_score)
+
+        max_unlinked_score = max(unlinked_scores)
+
+        margin = linked_score - max_unlinked_score
+        margins.append(margin)
+
+    avg_margin = np.mean(margins)
+
+    return 1 - avg_margin
+
+
+# ---------------------------------------------------------------------
+# RANK-BASED WEIGHTS OPTIMIZATION OBJECTIVE
+# ---------------------------------------------------------------------
+def rank_weight_optimization_objective(weights_lst, Multi_Ped_Dict, linked_variant, weight_names, Scoring_Method, mode):
+
+    weights_dict = {weight_names[i]: weights_lst[i] for i in range(len(weight_names))}
+
+
+    ranked_margins = []
+    for FamilyID, FamilyData in Multi_Ped_Dict.items():
+        PedGraph, VarTable = FamilyData['PedGraph'], FamilyData['VarTable']
+        CategoricalScores = FamilyData['CategoricalScores'][linked_variant]
+        linked_score = segregation_network_score(PedGraph= PedGraph,
+                                                 VariantEntry= VarTable[linked_variant],
+                                                 mode= mode,
+                                                 Scoring_Method= Scoring_Method,
+                                                 weights= weights_dict,
+                                                 categorical_scores= CategoricalScores)
+
+        unlinked_scores = []
+        for VarID, gt in VarTable.items():
+            if VarID != linked_variant:
+                CategoricalScores = FamilyData['CategoricalScores'][VarID]
+                unlinked_score  = segregation_network_score(PedGraph= PedGraph,
+                                                            VariantEntry= VarTable[VarID],
+                                                            mode= mode,
+                                                            Scoring_Method= Scoring_Method,
+                                                            weights= weights_dict,
+                                                            categorical_scores= CategoricalScores)
+                unlinked_scores.append(unlinked_score)
+
+        all_scores = unlinked_scores + [linked_score]
+        max_unlinked_score = max(unlinked_scores)
+
+        all_scores.sort(reverse=True)
+        linked_score_rank = all_scores.index(linked_score) + 1
+
+        margin = linked_score - max_unlinked_score
+
+
+        ranked_margins.append(linked_score_rank*margin)
+
+
+
+    avg_ranked_margin = np.mean(ranked_margins)
+
+
+    return len(VarTable) - avg_ranked_margin
+
+
+# ---------------------------------------------------------------------
+# WEIGHTS OPTIMIZATION OPERATIVE FUNCTION
+# ---------------------------------------------------------------------
+def weights_optimization(Multi_Ped_Dict, linked_variant, weight_names, Scoring_Method, Optimization_Method, initial_guess, mode= 'AD'):
+    n_weights = len(weight_names)
+    bounds = [(0.001,1)]*n_weights
+    constraints = {'type': 'eq',
+                  #figure out how this function is working
+                  'fun': lambda w: np.sum(w)-1}
+
+    if Optimization_Method == 'Margin':
+        results = minimize(fun= margin_weight_optimization_objective,
+                          x0= initial_guess,
+                          args= (Multi_Ped_Dict, linked_variant, weight_names, Scoring_Method, mode),
+                          bounds= bounds,
+                          constraints= constraints)
+    elif Optimization_Method == 'Rank':
+        results = minimize(fun= rank_weight_optimization_objective,
+                          x0= initial_guess,
+                          args= (Multi_Ped_Dict, linked_variant, weight_names, Scoring_Method, mode),
+                          bounds= bounds,
+                          constraints= constraints)
+
+    #Directly attaching weights with their names as dictionary for ease of use is scoring wrapper function
+    optimized_weights = {weight_names[i]: results.x[i] for i in range(len(weight_names))}
+
+    return optimized_weights
+
+########################## PEDIGREE GROUP SEGREGATION SCORING ######################
+'''
+INCLUDES WEIGHTS OPTIMIZATION
+'''
+#turn this into generative weights optimization only, and use standalone segregation scoring for real data application
+def trial_based_segregation_scoring_weight_optimization(trial_count= 1000,
+                                                        Scoring_Method= 'Original',
+                                                        weights= 0,
+                                                        Optimization_Method= 'None',
+                                                        Verbose= True,
+                                                        Known_Linked_Var= False,
+                                                        Mode= 'AD',
+                                                        max_children = 4,
+                                                        generation_count = 3,
+                                                        sequencing_coverage = 0.75,
+                                                        n_bg = 5):
+    '''
+    Takes multi-pedigree data dictionaries as input and outputs the dictionary with updated scores
+    '''
+    Multi_Ped_Dict = pedigree_group_generator(pedigree_count= trial_count,
+                                              mode= Mode,
+                                              max_children= max_children,
+                                              generation_count= generation_count,
+                                              sequencing_coverage= 0.75,
+                                              n_bg = n_bg)
+    for FamID in Multi_Ped_Dict.keys():
+        PedGraph = Multi_Ped_Dict[FamID]['PedGraph']
+        VarTable = Multi_Ped_Dict[FamID]['VarTable']
+        cat_score_dict = {}
+        for VarID in VarTable.keys():
+            cat_score_dict[VarID] = raw_categorical_scoring(G= PedGraph,
+                                                            gt= VarTable[VarID])
+        Multi_Ped_Dict[FamID]['CategoricalScores'] = cat_score_dict
+
+    if Scoring_Method == 'Original':
+        weight_names = ['w_edge', 'w_gen', 'w_bet']
+    elif Scoring_Method == 'Extended':
+        weight_names = ['w_edge', 'w_gen', 'w_bet', 'w_found', 'w_depth']
+
+    #manually assignment of weights if no weights given if using original scoring
+    if not weights:
+        if Scoring_Method == 'Original':
+            weights= {
+                'w_edge': 0.6,
+                'w_gen': 0.2,
+                'w_bet': 0.2
+            }
+        elif Scoring_Method == 'Extended':
+            weights= {
+                'w_edge': 0.6,
+                'w_gen': 0.1,
+                'w_bet': 0.1,
+                'w_found': 0.1,
+                'w_depth': 0.1,
+            }
+        
+    #Optimization of weights
+    if Optimization_Method == 'None':
+        print(f'Default {Scoring_Method} Weights:')
+
+    elif Optimization_Method == 'Margin' or Optimization_Method == 'Rank':
+        initial_guess = []
+        for weight_name in weight_names:
+            initial_guess.append(weights[weight_name])
+
+        training_Multi_Ped_Dict = {}
+        test_Multi_Ped_Dict = {}
+        tt_split = 0.8
+        for FamilyID in Multi_Ped_Dict.keys():
+            if int(FamilyID[3:]) <= int(tt_split*len(Multi_Ped_Dict)):
+                training_Multi_Ped_Dict[FamilyID] = Multi_Ped_Dict[FamilyID]
+            else:
+                test_Multi_Ped_Dict[FamilyID] = Multi_Ped_Dict[FamilyID]
+        #Downsize the original multiple pedigree dict to the testing data now that we have done training testing split
+        Multi_Ped_Dict = test_Multi_Ped_Dict
+        weights= weights_optimization(Multi_Ped_Dict= training_Multi_Ped_Dict,
+                                        linked_variant= Known_Linked_Var,
+                                        weight_names= weight_names,
+                                        Scoring_Method= Scoring_Method,
+                                        Optimization_Method= Optimization_Method,
+                                        mode= Mode,
+                                        initial_guess= initial_guess)
+        print(f'{Optimization_Method} Optimized {Scoring_Method} Weights:')
+    else:
+        raise NotImplementedError(f'Invalid Optimization Method: {Optimization_Method}')
+
+    pprint_weights(weights)
+
+
+    All_Family_Score_df = pd.DataFrame(columns=Multi_Ped_Dict.keys())
+    for FamilyID in Multi_Ped_Dict.keys():
+
+        PedGraph, VarTable = Multi_Ped_Dict[FamilyID]['PedGraph'], Multi_Ped_Dict[FamilyID]['VarTable']
+
+
+        CategoricalScores = Multi_Ped_Dict[FamilyID]['CategoricalScores']
+
+
+        Multi_Ped_Dict[FamilyID][Scoring_Method] = {}
+        for VarID in VarTable.keys():
+            score = segregation_network_score(PedGraph= PedGraph,
+                                                    VariantEntry= VarTable[VarID],
+                                                    mode= Mode,
+                                                    Scoring_Method= Scoring_Method,
+                                                    weights= weights,
+                                                    categorical_scores= CategoricalScores[VarID])
+            Multi_Ped_Dict[FamilyID][Scoring_Method][VarID] = score
+
+
+        All_Family_Score_df[FamilyID] = Multi_Ped_Dict[FamilyID][Scoring_Method]
+
+    if Known_Linked_Var:
+        Correctly_Scored_Pedigrees = 0
+        for FamilyID in Multi_Ped_Dict.keys():
+            if max(Multi_Ped_Dict[FamilyID][Scoring_Method], key= Multi_Ped_Dict[FamilyID][Scoring_Method].get) == Known_Linked_Var:
+                Correctly_Scored_Pedigrees += 1
+        Scoring_Method_Accuracy = Correctly_Scored_Pedigrees/len(Multi_Ped_Dict)
+
+    #displaying scores if verbose option chosen
+    if Verbose:
+        #printing dataframe with highest scoring variant highlighted for each family
+        print(f'{Scoring_Method} Segregation Scoring Results')
+        styled_All_Family_Score_df = All_Family_Score_df.style.apply(max_score_highlighter, axis=0)
+        #ToDo: test if this way of displaying will work for the styled dataframe 
+        styled_All_Family_Score_df
+        print(f'{Scoring_Method} Segregation Scoring Accuracy: {Scoring_Method_Accuracy}')
+
+
+
+    return Multi_Ped_Dict, weights, Scoring_Method_Accuracy
