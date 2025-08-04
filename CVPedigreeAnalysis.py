@@ -70,9 +70,9 @@ def merge_duplicate_lines(norm_cat_lines, angle_threshold= 10, distance_threshol
                     merged_horizontal_lines[i] = (c,hy1,b,hy2)
                     horz_duplicate = True
                     break
-                else:
-                    if not (b < c or d < a):
-                        print('Not possible')
+                # else:
+                #     if not (b < c or d < a):
+                #         print('Not possible')
         if not horz_duplicate:
             merged_horizontal_lines.append(horz_line)
 
@@ -102,9 +102,9 @@ def merge_duplicate_lines(norm_cat_lines, angle_threshold= 10, distance_threshol
                 elif c >= a and a >= d and d > b:
                     merged_vertical_lines[j] = (vx1,c,vx1,b)
                     vert_duplicate = True
-                else:
-                    if not (b > c or d > a):
-                        print('Not Possible')
+                # else:
+                #     if not (b > c or d > a):
+                #         print('Not Possible')
         if not vert_duplicate:
             merged_vertical_lines.append(vert_line)
 
