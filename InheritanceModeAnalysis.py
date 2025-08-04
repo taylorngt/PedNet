@@ -21,7 +21,7 @@ def trial_based_feature_threshold_determination(generation_count,
                                                 max_children= 5,
                                                 AD_alt_freq_range= (2,10),
                                                 AR_alt_freq_range= (5,20),
-                                                verbose = True,
+                                                verbose = False,
                                                 size_agnostic = False,
                                                 accuracy_threshold = 0.7):
     '''
@@ -259,37 +259,34 @@ def inheritance_pattern_classification(sample_features,
     else:
         return 'Uncertain'
 
-def classify_pedigree(G, thresholds_dict= 0) -> str:
-    if isinstance(G, nx.DiGraph):
-        if not thresholds_dict:
-            thresholds_dict, _ = trial_based_feature_threshold_determination(generation_count= max(generations(G).values())+1)
-        pedigree_feats_mets = {**pedigree_features(G), **graph_metrics(G)}
-    else:
-        raise TypeError(f'Invalid Input Type: classify pedigree takes NetworkX directed graph with optional thresholds dict as input; given {type(G)}')
+def classify_pedigree(PedGraph, thresholds_dict) -> str:
+
+    pedigree_feats_mets = {**pedigree_features(PedGraph), **graph_metrics(PedGraph)}
 
     return inheritance_pattern_classification(sample_features= pedigree_feats_mets,
                                               thresholds_dict= thresholds_dict)
 
-def classify_multiple_pedigrees(Multi_Ped_Dict: dict, thresholds_dict= 0, same_size= True):
+def classify_multiple_pedigrees(Multi_Ped_Dict: dict, thresholds_dict= 0, same_size= True, Verbose= False):
     if same_size:
         if not thresholds_dict:
             threshold_basis_graph = random.choice(list(Multi_Ped_Dict.values()))['PedGraph']
             thresholds_dict, _ = trial_based_feature_threshold_determination(generation_count= longest_path_length(threshold_basis_graph)+1)
         for FamilyID in Multi_Ped_Dict.keys():
-            G = Multi_Ped_Dict[FamilyID]['PedGraph']
-            Multi_Ped_Dict[FamilyID]['pred_mode'] = classify_pedigree(G, thresholds_dict= thresholds_dict)
+            FamilyDG = Multi_Ped_Dict[FamilyID]['PedGraph']
+            Multi_Ped_Dict[FamilyID]['PredMode'] = classify_pedigree(G= FamilyDG, thresholds_dict= thresholds_dict)
     else:
         pedigree_sizes = set()
         for FamilyID in Multi_Ped_Dict.keys():
-            G = Multi_Ped_Dict[FamilyID]['PedGraph']
-            pedigree_sizes.add(longest_path_length(G)+1)
+            FamilyDG = Multi_Ped_Dict[FamilyID]['PedGraph']
+            pedigree_sizes.add(longest_path_length(FamilyDG)+1)
         thresholds_2d_dict = {}
+
         for pedigree_size in pedigree_sizes:
-            thresholds_2d_dict[pedigree_size], _ = trial_based_feature_threshold_determination(generation_count= pedigree_size)
+            thresholds_2d_dict[pedigree_size], _ = trial_based_feature_threshold_determination(generation_count= pedigree_size, verbose= Verbose)
 
         for FamilyID in Multi_Ped_Dict.keys():
-            G = Multi_Ped_Dict[FamilyID]['PedGraph']
-            Multi_Ped_Dict[FamilyID]['pred_mode'] = classify_pedigree(G, thresholds_dict= thresholds_2d_dict[longest_path_length(G)+1])
+            FamilyDG = Multi_Ped_Dict[FamilyID]['PedGraph']
+            Multi_Ped_Dict[FamilyID]['PredMode'] = classify_pedigree(PedGraph= FamilyDG, thresholds_dict= thresholds_2d_dict[longest_path_length(FamilyDG)+1])
 
     return Multi_Ped_Dict
 
@@ -299,6 +296,6 @@ def pedigree_group_mode_agreement(Multi_Ped_Dict: dict):
     most prevelant inheritance mode classification found in the predicted modes
     '''
     Multi_Ped_Dict = classify_multiple_pedigrees(Multi_Ped_Dict)
-    mode_lst = [Multi_Ped_Dict[FamilyID]['pred_mode'] for FamilyID in Multi_Ped_Dict.keys()]
+    mode_lst = [Multi_Ped_Dict[FamilyID]['PredMode'] for FamilyID in Multi_Ped_Dict.keys()]
     agreed_mode = max(set(mode_lst), key= mode_lst.count)
     return Multi_Ped_Dict, agreed_mode

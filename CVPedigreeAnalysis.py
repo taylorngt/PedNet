@@ -5,16 +5,21 @@ import math
 import numpy as np
 from PIL import Image
 from PIL import ImageEnhance
-from os import listdir
+from os import listdir, makedirs
 
-def image_enhance(input_path, output_path, upscale_factor = 10):
+def image_enhance(FamID, input_dir, output_dir, upscale_factor = 10):
+    input_path = f'{input_dir}/{FamID}.png'
+    output_path = f'{output_dir}/{FamID}_upscaled{upscale_factor}x.png'
 
     img = Image.open(input_path)
 
     new_size = (img.width * upscale_factor, img.height * upscale_factor)
     upscaled_img = img.resize(new_size, Image.LANCZOS)
 
+    makedirs(output_dir, exist_ok=True) 
     upscaled_img.save(output_path, quality= 95)
+
+    return output_path
 
 def linDist(coord1, coord2):
     x1, y1 = coord1
@@ -227,11 +232,12 @@ def pedigree_processing(FamID):
     # ENHANCE IMAGE
     #----------------------------------------
     upscale_factor = 10
-    raw_image_path = f'data/Pedigree_Images/Raw_Images/{FamID}.png'
-    upscaled_image_path = f'data/Pedigree_Images/Upscaled_Images/{FamID}_upscaled{upscale_factor}x.png'
-    image_enhance(input_path= raw_image_path,
-                  output_path= upscaled_image_path,
-                  upscale_factor= upscale_factor)
+    raw_image_dir = f'data/Pedigree_Images/Raw_Images'
+    upscaled_image_dir = f'data/Pedigree_Images/Upscaled_Images'
+    upscaled_image_path = image_enhance(FamID = FamID,
+                                    input_dir= raw_image_dir,
+                                    output_dir= upscaled_image_dir,
+                                    upscale_factor= upscale_factor)
 
     #----------------------------------------
     # INDIVIDUAL ID DETECTION
@@ -336,11 +342,12 @@ def pedigree_processing(FamID):
     #----------------------------------------
     # Pedfile Generation
     #----------------------------------------
+    makedirs('data/PedFiles/Automatic_Pedigrees', exist_ok= True)
     PedFile = f'data/PedFiles/Automatic_Pedigrees/{FamID}auto.ped'
     PedFileDataFields = ['PaternalID', 'MaternalID', 'Sex', 'Phenotype']
     with open(PedFile, 'w') as pf:
         for IndvID in IndvIDsDict.keys():
-            pf.write(f'{FamilyID} {IndvID}')
+            pf.write(f'{FamID} {IndvID}')
             for field in PedFileDataFields:
                 pf.write(f' {IndvIDsDict[IndvID][field]}')
             pf.write('\n')
@@ -348,13 +355,4 @@ def pedigree_processing(FamID):
     
     return line_img
 
-FamilyIDs = []
-avail_ped_images = listdir('data/Pedigree_Images/Raw_Images')
-for ped_image in avail_ped_images:
-    FamilyIDs.append(ped_image[:-4])
 
-for FamilyID in FamilyIDs:
-    line_img = pedigree_processing(FamilyID)
-    cv2.imshow(f'{FamilyID} lines', line_img)
-k = cv2.waitKey(0)
-cv2.destroyAllWindows

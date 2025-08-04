@@ -367,7 +367,7 @@ def trial_based_segregation_scoring_weight_optimization(trial_count= 1000,
                                               mode= Mode,
                                               max_children= max_children,
                                               generation_count= generation_count,
-                                              sequencing_coverage= 0.75,
+                                              sequencing_coverage= sequencing_coverage,
                                               n_bg = n_bg)
     for FamID in Multi_Ped_Dict.keys():
         PedGraph = Multi_Ped_Dict[FamID]['PedGraph']
