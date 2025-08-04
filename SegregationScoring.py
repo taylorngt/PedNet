@@ -354,7 +354,6 @@ def trial_based_segregation_scoring_weight_optimization(trial_count= 1000,
                                                         weights= 0,
                                                         Optimization_Method= 'None',
                                                         Verbose= True,
-                                                        Known_Linked_Var= False,
                                                         Mode= 'AD',
                                                         max_children = 4,
                                                         generation_count = 3,
@@ -420,7 +419,7 @@ def trial_based_segregation_scoring_weight_optimization(trial_count= 1000,
         #Downsize the original multiple pedigree dict to the testing data now that we have done training testing split
         Multi_Ped_Dict = test_Multi_Ped_Dict
         weights= weights_optimization(Multi_Ped_Dict= training_Multi_Ped_Dict,
-                                        linked_variant= Known_Linked_Var,
+                                        linked_variant= 'chr1:100000_A>T',
                                         weight_names= weight_names,
                                         Scoring_Method= Scoring_Method,
                                         Optimization_Method= Optimization_Method,
@@ -455,12 +454,11 @@ def trial_based_segregation_scoring_weight_optimization(trial_count= 1000,
 
         All_Family_Score_df[FamilyID] = Multi_Ped_Dict[FamilyID][Scoring_Method]
 
-    if Known_Linked_Var:
-        Correctly_Scored_Pedigrees = 0
-        for FamilyID in Multi_Ped_Dict.keys():
-            if max(Multi_Ped_Dict[FamilyID][Scoring_Method], key= Multi_Ped_Dict[FamilyID][Scoring_Method].get) == Known_Linked_Var:
-                Correctly_Scored_Pedigrees += 1
-        Scoring_Method_Accuracy = Correctly_Scored_Pedigrees/len(Multi_Ped_Dict)
+    Correctly_Scored_Pedigrees = 0
+    for FamilyID in Multi_Ped_Dict.keys():
+        if max(Multi_Ped_Dict[FamilyID][Scoring_Method], key= Multi_Ped_Dict[FamilyID][Scoring_Method].get) == 'chr1:100000_A>T':
+            Correctly_Scored_Pedigrees += 1
+    Scoring_Method_Accuracy = Correctly_Scored_Pedigrees/len(Multi_Ped_Dict)
 
     #displaying scores if verbose option chosen
     if Verbose:
@@ -474,3 +472,29 @@ def trial_based_segregation_scoring_weight_optimization(trial_count= 1000,
 
 
     return Multi_Ped_Dict, weights, Scoring_Method_Accuracy
+
+
+def pedigree_segregation_scoring(Ped_Dict, Scoring_Method, Mode, Weights):
+
+    PedGraph = Ped_Dict['PedGraph']
+    VarTable = Ped_Dict['VarTable']
+
+    CategoricalScores = {}
+    for VarID in VarTable.keys():
+        CategoricalScores[VarID] = raw_categorical_scoring(G= PedGraph,
+                                                        gt= VarTable[VarID])
+    Ped_Dict['CategoricalScores'] = CategoricalScores
+
+
+
+    Ped_Dict[Scoring_Method] = {}
+    for VarID in VarTable.keys():
+        score = segregation_network_score(PedGraph= PedGraph,
+                                                VariantEntry= VarTable[VarID],
+                                                mode= Mode,
+                                                Scoring_Method= Scoring_Method,
+                                                weights= Weights,
+                                                categorical_scores= CategoricalScores[VarID])
+        Ped_Dict[Scoring_Method][VarID] = score
+
+    return Ped_Dict

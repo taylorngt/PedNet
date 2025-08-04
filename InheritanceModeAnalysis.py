@@ -17,7 +17,7 @@ from PedigreeDataGeneration import pedigree_generator
 
 
 def trial_based_feature_threshold_determination(generation_count,
-                                                trial_count=1000,
+                                                trial_count=500,
                                                 max_children= 5,
                                                 AD_alt_freq_range= (2,10),
                                                 AR_alt_freq_range= (5,20),

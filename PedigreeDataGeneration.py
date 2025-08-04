@@ -2,7 +2,7 @@ import random
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, auc
-from PedigreeDAGAnalysis import aff, construct_pedigree_graph
+from PedigreeDAGAnalysis import aff, unaff, construct_pedigree_graph
 
 
 #################### Pedigree Generator ####################
@@ -287,7 +287,11 @@ def simulate_variant_table(family_df, sequencing_coverage, mode='AD', n_bg= 5, l
     return VarTable
 
 
-
+#################### Mass Pedigree and Variant Table Data Generator####################
+'''
+Generates a dictionary of families with each entry containing the generated pedigree DAG graph,
+and variant table data (randomly generated with one linked variant) 
+'''
 def pedigree_group_generator(pedigree_count, mode, max_children, generation_count, sequencing_coverage = 0.75, n_bg= 5, alt_freq = 0):
     Fam_Data_Dict = {}
     for Family_Num in range(1, pedigree_count+1):
@@ -342,3 +346,36 @@ def pedigree_group_generator(pedigree_count, mode, max_children, generation_coun
 
         Fam_Data_Dict[FamilyID] = {'PedGraph': ped_dg, 'VarTable': var_dict}
     return Fam_Data_Dict
+
+#################### Variant Table Backpadding ####################
+def VarTableBackpadding(PedGraph, VariantInfoDict, TotalNumberVariants):
+    affected_nodes = aff(G=PedGraph)
+    unaffected_nodes = unaff(G=PedGraph)
+
+    VarTable = {}
+    for gene, attributes in VariantInfoDict.items():
+        VarTable[gene] = {}
+        for group, genotype in attributes.items():
+            if group == 'aff':
+                for node in affected_nodes:
+                    VarTable[gene][node] = genotype
+            elif group == 'unaff':
+                for node in unaffected_nodes:
+                    VarTable[gene][node] = genotype
+            elif group == 'all':
+                for node in PedGraph.nodes():
+                    VarTable[gene][node] = genotype
+            elif int(group) in PedGraph.nodes():
+                VarTable[gene][int(group)] = genotype
+            else:
+                print('{group}:{genotype} is not a valid entry for genotype data')
+    
+    PaddingCount = TotalNumberVariants - len(VarTable)
+    SequencedNodes = set()
+    for Variant, NodeGenotypes in VarTable.items():
+        SequencedNodes = SequencedNodes.union(set(NodeGenotypes.keys()))
+    for i in range(PaddingCount):
+        VarID = f'chr1:{100200+i}_G>C'
+        VarTable[VarID] = {sample : random.choices([0,1,2],[0.8, 0.18,0.02])[0] for sample in SequencedNodes}   
+
+    return VarTable   
