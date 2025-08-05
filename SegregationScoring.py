@@ -522,8 +522,24 @@ def trial_based_segregation_scoring_weight_optimization(
         for opt in [Optimization_Method, 'Unoptimized']:
             score_list = test_Multi_Ped_Dict[FamilyID][Scoring_Method][opt]
             sorted_score_list = sorted(score_list, key=lambda score: score[1], reverse=True)
+
+            #storing the whole list of scores as list of tuples (VarID, score)
             test_Multi_Ped_Dict[FamilyID][Scoring_Method][opt] = sorted_score_list
 
+            #storing linked variant score
+            score_dict = dict(sorted_score_list)
+            linked_score = score_dict['chr1:100000_A>T']
+            test_Multi_Ped_Dict[FamilyID][Scoring_Method][f'{opt}LinkedScore'] = linked_score
+
+            #storing margin
+            unlinked_scores = []
+            for VarID, score in score_dict.items():
+                if VarID != 'chr1:100000_A>T':
+                    unlinked_scores.append(score)
+            margin = linked_score - max(unlinked_scores)
+            test_Multi_Ped_Dict[FamilyID][Scoring_Method][f'{opt}Margin'] = margin
+
+            #storing linked rank
             ranks = [Var[0] for Var in sorted_score_list]
             linked_rank = ranks.index('chr1:100000_A>T') + 1
             test_Multi_Ped_Dict[FamilyID][Scoring_Method][f'{opt}LinkedRank'] = linked_rank
