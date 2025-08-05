@@ -15,31 +15,42 @@ from pprint import pprint
 from PedigreeDAGAnalysis import generations, aff, construct_pedigree_graph, pedigree_features, graph_metrics, longest_path_length
 from PedigreeDataGeneration import pedigree_generator
 
+############### GLOBAL DEFAULT PEDIGREE PARAMETERS ##################
+TRIAL_COUNT = 500
+MAX_CHILDREN = 5
+ALT_FREQ_RANGE = (2, 20)
+BACKPROP_LIKELIHOOD_RANGE = (25, 75)
+SPOUSE_LIKELIHOOD_RANGE = (25, 75)
+AFFECTED_SPOUSE = True
 
-def trial_based_feature_threshold_determination(generation_count,
-                                                trial_count=500,
-                                                max_children= 5,
-                                                AD_alt_freq_range= (2,10),
-                                                AR_alt_freq_range= (5,20),
-                                                verbose = False,
-                                                size_agnostic = False,
-                                                accuracy_threshold = 0.7):
+############### GLOBAL DEFAULT MoI PARAMETERS #####################
+ACCURACY_THRESHOLD = 0.7
+
+def trial_based_feature_threshold_determination(
+                generation_count,
+                trial_count= TRIAL_COUNT,
+                max_children= MAX_CHILDREN,
+                alt_freq_range= ALT_FREQ_RANGE,
+                accuracy_threshold = ACCURACY_THRESHOLD,
+                BackpropLikelihoodRange = BACKPROP_LIKELIHOOD_RANGE,
+                SpouseLikelihoodRange= SPOUSE_LIKELIHOOD_RANGE,
+                AffectedSpouse = AFFECTED_SPOUSE,
+                verbose = False,
+                size_agnostic = False,):
     '''
     Determines optimal inheritence pattern determination thresholds for pedigrees of given generation count
     based on a given number of randomly generated trial pedigrees
     '''
 
-    def trial_pedigree_generation():
-        nonlocal generation_count, trial_count, AD_alt_freq_range, AR_alt_freq_range, max_children, size_agnostic
+    def trail_results_df_generation():
+        nonlocal generation_count, trial_count, alt_freq_range, BackpropLikelihoodRange, SpouseLikelihoodRange, max_children, size_agnostic
 
         all_trial_pedigree_features = pd.DataFrame()
 
         for trialID in range(1, trial_count+1):
-            famID = 'TestFam' + str(trialID)
+
+            FamilyID = 'TestFam' + str(trialID)
             actual_mode = random.choice(['AD', 'AR'])
-            alt_freq_min = AD_alt_freq_range[0] if actual_mode == 'AD' else AR_alt_freq_range[0]
-            alt_freq_max = AD_alt_freq_range[1] if actual_mode == 'AD' else AR_alt_freq_range[1]
-            alt_freq = random.randint(alt_freq_min, alt_freq_max)/100
 
             #Accounting for cases where we want thresholds that are not specific to a generation count
             if size_agnostic:
@@ -50,21 +61,24 @@ def trial_based_feature_threshold_determination(generation_count,
 
             QC_pass = False
             while not QC_pass:
-                trial_pedigree_df = pedigree_generator(FamilyID= famID,
-                                                       mode= actual_mode,
-                                                       max_children= random.randint(2,max_children),
-                                                       generation_count= trial_generation_count,
-                                                       BackpropLikelihood= random.choice([x/10 for x in range(4,11)]),
-                                                       SpouseLikelihood= random.choice([x/10 for x in range(4,11)]),
-                                                       alt_freq= alt_freq)
-                trial_pedigree_dg = construct_pedigree_graph(trial_pedigree_df)
+                trial_df = pedigree_generator(
+                                            FamilyID= FamilyID,
+                                            mode= actual_mode,
+                                            max_children= max_children,
+                                            generation_count= trial_generation_count,
+                                            BackpropLikelihoodRange= BackpropLikelihoodRange,
+                                            SpouseLikelihoodRange= SpouseLikelihoodRange,
+                                            alt_freq_range= alt_freq_range,
+                                            AffectedSpouse= AffectedSpouse)
 
-                affecteded_nodes = aff(trial_pedigree_dg)
-                if len(affecteded_nodes) > 1 and len(trial_pedigree_dg.nodes()) > (generation_count * 2) - 1:
+                trial_dg = construct_pedigree_graph(trial_df)
+
+                affecteded_nodes = aff(trial_dg)
+                if len(affecteded_nodes) > 1 and len(trial_dg.nodes()) > (generation_count * 2) - 1:
                     QC_pass = True
 
 
-            trial_feat_met_dict = {**pedigree_features(trial_pedigree_dg), **graph_metrics(trial_pedigree_dg)}
+            trial_feat_met_dict = {**pedigree_features(trial_dg), **graph_metrics(trial_dg)}
             trial_feat_met_dict['actual_mode'] = actual_mode
             trial_feat_met_df = pd.DataFrame(trial_feat_met_dict, index= [0])
 
@@ -174,7 +188,7 @@ def trial_based_feature_threshold_determination(generation_count,
     accuracy_QC_pass = False
     while not accuracy_QC_pass and accuracy_checks < max_accuracy_checks:
         accuracy_checks += 1
-        trial_features_df = trial_pedigree_generation()
+        trial_features_df = trail_results_df_generation()
         training_features_df = trial_features_df.sample(frac=0.8)
         testing_features_df = trial_features_df.drop(training_features_df.index)
 
@@ -194,8 +208,9 @@ def trial_based_feature_threshold_determination(generation_count,
 
         mode_prediction_field = []
         for _,row in testing_features_df.iterrows():
-            predicted_mode = inheritance_pattern_classification(row,
-                                                                thresholds_dict = thresholds_dict)
+            predicted_mode = MoI_classification(sample = row,
+                                                                thresholds_dict = thresholds_dict,
+                                                                accuracy_threshold= accuracy_threshold)
             mode_prediction_field.append(predicted_mode)
         testing_features_df['predicted_mode'] = mode_prediction_field
 
@@ -229,9 +244,24 @@ def trial_based_feature_threshold_determination(generation_count,
 
     return thresholds_dict, accuracy_metrics
 
-def inheritance_pattern_classification(sample_features,
-                                       thresholds_dict,
-                                       min_accuracy_score= 0.7) -> str:
+
+
+
+
+
+
+def MoI_classification(
+            sample,
+            thresholds_dict,
+            accuracy_threshold= 0.7,
+            ) -> str:
+    #checking to see if input is pedigree graph for normal classification or df row for threshold determination calculations
+    if isinstance(sample, nx.Graph):
+        sample_features = {**pedigree_features(sample), **graph_metrics(sample)}
+    elif isinstance(sample, dict):
+        sample_features = sample
+    else:
+        raise TypeError("Input must either be a dictionary with pre-calculated pedigree features or a DAG representation of a pedigree")
 
     votes= 0
     total= 0
@@ -241,7 +271,7 @@ def inheritance_pattern_classification(sample_features,
         accuracy = descriptors['accuracy']
         feature_value = sample_features[feature]
 
-        if accuracy >= min_accuracy_score:
+        if accuracy >= accuracy_threshold:
             total += 1
             if direction == 'greater':
                 if feature_value > threshold:
@@ -259,43 +289,47 @@ def inheritance_pattern_classification(sample_features,
     else:
         return 'Uncertain'
 
-def classify_pedigree(PedGraph, thresholds_dict) -> str:
+# def classify_pedigree(PedGraph, thresholds_dict, accuracy_threshold = 0.7) -> str:
 
-    pedigree_feats_mets = {**pedigree_features(PedGraph), **graph_metrics(PedGraph)}
+#     pedigree_feats_mets = 
 
-    return inheritance_pattern_classification(sample_features= pedigree_feats_mets,
-                                              thresholds_dict= thresholds_dict)
+#     return inheritance_pattern_classification(sample_features= pedigree_feats_mets,
+#                                               thresholds_dict= thresholds_dict,
+#                                               accuracy_threshold= accuracy_threshold)
 
-def classify_multiple_pedigrees(Multi_Ped_Dict: dict, thresholds_dict= 0, same_size= True, Verbose= False):
-    if same_size:
-        if not thresholds_dict:
-            threshold_basis_graph = random.choice(list(Multi_Ped_Dict.values()))['PedGraph']
-            thresholds_dict, _ = trial_based_feature_threshold_determination(generation_count= longest_path_length(threshold_basis_graph)+1)
-        for FamilyID in Multi_Ped_Dict.keys():
-            FamilyDG = Multi_Ped_Dict[FamilyID]['PedGraph']
-            Multi_Ped_Dict[FamilyID]['PredMode'] = classify_pedigree(G= FamilyDG, thresholds_dict= thresholds_dict)
-    else:
-        pedigree_sizes = set()
-        for FamilyID in Multi_Ped_Dict.keys():
-            FamilyDG = Multi_Ped_Dict[FamilyID]['PedGraph']
-            pedigree_sizes.add(longest_path_length(FamilyDG)+1)
-        thresholds_2d_dict = {}
 
-        for pedigree_size in pedigree_sizes:
-            thresholds_2d_dict[pedigree_size], _ = trial_based_feature_threshold_determination(generation_count= pedigree_size, verbose= Verbose)
 
-        for FamilyID in Multi_Ped_Dict.keys():
-            FamilyDG = Multi_Ped_Dict[FamilyID]['PedGraph']
-            Multi_Ped_Dict[FamilyID]['PredMode'] = classify_pedigree(PedGraph= FamilyDG, thresholds_dict= thresholds_2d_dict[longest_path_length(FamilyDG)+1])
 
-    return Multi_Ped_Dict
+# def classify_multiple_pedigrees(Multi_Ped_Dict: dict, thresholds_dict= 0, same_size= True, Verbose= False):
+#     if same_size:
+#         if not thresholds_dict:
+#             threshold_basis_graph = random.choice(list(Multi_Ped_Dict.values()))['PedGraph']
+#             thresholds_dict, _ = trial_based_feature_threshold_determination(generation_count= longest_path_length(threshold_basis_graph)+1)
+#         for FamilyID in Multi_Ped_Dict.keys():
+#             FamilyDG = Multi_Ped_Dict[FamilyID]['PedGraph']
+#             Multi_Ped_Dict[FamilyID]['PredMode'] = classify_pedigree(G= FamilyDG, thresholds_dict= thresholds_dict)
+#     else:
+#         pedigree_sizes = set()
+#         for FamilyID in Multi_Ped_Dict.keys():
+#             FamilyDG = Multi_Ped_Dict[FamilyID]['PedGraph']
+#             pedigree_sizes.add(longest_path_length(FamilyDG)+1)
+#         thresholds_2d_dict = {}
 
-def pedigree_group_mode_agreement(Multi_Ped_Dict: dict):
-    '''
-    Returns the mutliple pedigree data file with updated predicted modes as well as the
-    most prevelant inheritance mode classification found in the predicted modes
-    '''
-    Multi_Ped_Dict = classify_multiple_pedigrees(Multi_Ped_Dict)
-    mode_lst = [Multi_Ped_Dict[FamilyID]['PredMode'] for FamilyID in Multi_Ped_Dict.keys()]
-    agreed_mode = max(set(mode_lst), key= mode_lst.count)
-    return Multi_Ped_Dict, agreed_mode
+#         for pedigree_size in pedigree_sizes:
+#             thresholds_2d_dict[pedigree_size], _ = trial_based_feature_threshold_determination(generation_count= pedigree_size, verbose= Verbose)
+
+#         for FamilyID in Multi_Ped_Dict.keys():
+#             FamilyDG = Multi_Ped_Dict[FamilyID]['PedGraph']
+#             Multi_Ped_Dict[FamilyID]['PredMode'] = classify_pedigree(PedGraph= FamilyDG, thresholds_dict= thresholds_2d_dict[longest_path_length(FamilyDG)+1])
+
+#     return Multi_Ped_Dict
+
+# def pedigree_group_mode_agreement(Multi_Ped_Dict: dict):
+#     '''
+#     Returns the mutliple pedigree data file with updated predicted modes as well as the
+#     most prevelant inheritance mode classification found in the predicted modes
+#     '''
+#     Multi_Ped_Dict = classify_multiple_pedigrees(Multi_Ped_Dict)
+#     mode_lst = [Multi_Ped_Dict[FamilyID]['PredMode'] for FamilyID in Multi_Ped_Dict.keys()]
+#     agreed_mode = max(set(mode_lst), key= mode_lst.count)
+#     return Multi_Ped_Dict, agreed_mode

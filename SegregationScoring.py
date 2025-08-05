@@ -4,11 +4,22 @@ import networkx as nx
 import numpy as np
 from scipy.optimize import minimize
 from PedigreeDAGAnalysis import generations, parents, aff, unaff, founder_influence, longest_path_length
-from PedigreeDataGeneration import pedigree_group_generator
+from PedigreeDataGeneration import PedGraph_VarTable_generator
 from IPython.display import display
 
+############### GLOBAL DEFAULT PEDIGREE PARAMETERS ##################
+TRIAL_COUNT = 500
+MAX_CHILDREN = 5
+ALT_FREQ_RANGE = (2, 20)
+BACKPROP_LIKELIHOOD_RANGE = (25, 75)
+SPOUSE_LIKELIHOOD_RANGE = (25, 75)
+AFFECTED_SPOUSE = True
 
-#################### MODULAR VARIANT SCORING ####################
+############### GLOBAL DEFAULT VARTABLE PARAMETERS #####################
+SEQUENCE_COVERAGE_RANGE = (20, 100)
+
+
+#################### MODULAR VARIANT SCORING METRIC CALCULATION ####################
 '''
 Scores: measures of variant association likelihoods accounting for graph/pedigree structure as well as genotype and phenotype data,
 provided in mode agnostic form
@@ -153,6 +164,8 @@ def raw_categorical_scoring(G, gt):
     }
 
 
+
+
 # ---------------------------------------------------------------------
 # SEGREGATION SCORING
 # ---------------------------------------------------------------------
@@ -195,10 +208,7 @@ def segregation_network_score(PedGraph, VariantEntry, mode, Scoring_Method= 'Ori
             bet_score
         Extended:
             found_score
-            red_score (CURRENTLY UNUSED)
             depth_score
-            width_score (CURRENTLY UNUSED)
-            cov_score (CURRENTLY UNUSED)
     '''
     if verbose:
         print(f"Edge Score: {edge_score}; Generational Score: {gen_score}; Betweeness Score: {bet_score}")
@@ -206,6 +216,18 @@ def segregation_network_score(PedGraph, VariantEntry, mode, Scoring_Method= 'Ori
             print(f"Founder Score: {founder_score}; Depth Score: {depth_score}")
         print(f'Segregation Score: {total_score}')
     return total_score
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ############## SEGREGATION SCORING WEIGHT OPTIMIZATION ##################
@@ -344,30 +366,51 @@ def weights_optimization(Multi_Ped_Dict, linked_variant, weight_names, Scoring_M
 
     return optimized_weights
 
-########################## PEDIGREE GROUP SEGREGATION SCORING ######################
-'''
-INCLUDES WEIGHTS OPTIMIZATION
-'''
+
+# ---------------------------------------------------------------------
+# TRIAL-BASED WEIGHTS OPTIMIZATION
+# ---------------------------------------------------------------------
 #turn this into generative weights optimization only, and use standalone segregation scoring for real data application
-def trial_based_segregation_scoring_weight_optimization(trial_count= 1000,
-                                                        Scoring_Method= 'Original',
-                                                        weights= 0,
-                                                        Optimization_Method= 'None',
-                                                        Verbose= True,
-                                                        Mode= 'AD',
-                                                        max_children = 4,
-                                                        generation_count = 3,
-                                                        sequencing_coverage = 0.75,
-                                                        n_bg = 5):
+def trial_based_segregation_scoring_weight_optimization(
+                                                    #Segregation Scoring Parameters
+                                                    Scoring_Method= 'Original',
+                                                    weights= 0,
+                                                    Optimization_Method= 'None',
+                                                    Verbose= True,
+
+                                                    #PedGraph Parameters
+                                                    trial_count= TRIAL_COUNT,
+                                                    Mode= 'AD',
+                                                    generation_count= 3,
+                                                    max_children = MAX_CHILDREN,
+                                                    BackpropLikelihoodRange = BACKPROP_LIKELIHOOD_RANGE,
+                                                    SpouseLikelihoodRange = SPOUSE_LIKELIHOOD_RANGE,
+                                                    AffectedSpouse= AFFECTED_SPOUSE,
+
+
+                                                    #VarTable Parameters
+                                                    sequencing_coverage_range = SEQUENCE_COVERAGE_RANGE,
+                                                    n_bg = 5,
+
+                                                    #PedGraph and VarTable Parameters
+                                                    alt_freq_range= ALT_FREQ_RANGE,
+                                                    ):
     '''
     Takes multi-pedigree data dictionaries as input and outputs the dictionary with updated scores
     '''
-    Multi_Ped_Dict = pedigree_group_generator(pedigree_count= trial_count,
-                                              mode= Mode,
-                                              max_children= max_children,
-                                              generation_count= generation_count,
-                                              sequencing_coverage= sequencing_coverage,
-                                              n_bg = n_bg)
+    Multi_Ped_Dict = PedGraph_VarTable_generator(
+                                            pedigree_count= trial_count,
+                                            mode= Mode,
+                                            max_children= max_children,
+                                            generation_count= generation_count,
+                                            sequencing_coverage_range= sequencing_coverage_range,
+                                            BackpropLikelihoodRange= BackpropLikelihoodRange,
+                                            SpouseLikelihoodRange= SpouseLikelihoodRange,
+                                            AffectedSpouse= AffectedSpouse,
+                                            
+                                            n_bg = n_bg,
+                                            
+                                            alt_freq_range= alt_freq_range,)
     for FamID in Multi_Ped_Dict.keys():
         PedGraph = Multi_Ped_Dict[FamID]['PedGraph']
         VarTable = Multi_Ped_Dict[FamID]['VarTable']
@@ -460,12 +503,10 @@ def trial_based_segregation_scoring_weight_optimization(trial_count= 1000,
             Correctly_Scored_Pedigrees += 1
     Scoring_Method_Accuracy = Correctly_Scored_Pedigrees/len(Multi_Ped_Dict)
 
-    #displaying scores if verbose option chosen
+    #TODO figure out how to display variant score table in normal python script run
     if Verbose:
-        #printing dataframe with highest scoring variant highlighted for each family
         print(f'{Scoring_Method} Segregation Scoring Results')
         styled_All_Family_Score_df = All_Family_Score_df.style.apply(max_score_highlighter, axis=0)
-        #ToDo: test if this way of displaying will work for the styled dataframe 
         styled_All_Family_Score_df
         print(f'{Scoring_Method} Segregation Scoring Accuracy: {Scoring_Method_Accuracy}')
 
@@ -474,6 +515,15 @@ def trial_based_segregation_scoring_weight_optimization(trial_count= 1000,
     return Multi_Ped_Dict, weights, Scoring_Method_Accuracy
 
 
+
+
+
+
+
+
+
+
+######################### SEGREGATION SCORING ##########################
 def pedigree_segregation_scoring(Ped_Dict, Scoring_Method, Mode, Weights):
 
     PedGraph = Ped_Dict['PedGraph']

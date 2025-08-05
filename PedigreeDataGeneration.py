@@ -10,7 +10,29 @@ from PedigreeDAGAnalysis import aff, unaff, construct_pedigree_graph
 Generates a pedigree based on given metrics
 
 '''
-def pedigree_generator(max_children, FamilyID, mode, generation_count, alt_freq=0.15, SpouseLikelihood = 0.6, AffectedSpouse= True, BackpropLikelihood= 0.25):
+def pedigree_generator(
+            FamilyID,
+            mode, 
+            generation_count,
+            max_children,  
+            alt_freq_range, 
+            SpouseLikelihoodRange, 
+            BackpropLikelihoodRange,
+            AffectedSpouse,):
+                
+        #-------------------------------------------
+        # Range-based Parameter Determination
+        #-------------------------------------------
+        alt_freq_min, alt_freq_max = alt_freq_range
+        alt_freq = random.randint(alt_freq_min, alt_freq_max)/100
+
+        backprop_min, backprop_max = BackpropLikelihoodRange
+        BackpropLikelihood = random.randint(backprop_min, backprop_max)/100
+
+        spouse_min, spouse_max = SpouseLikelihoodRange
+        SpouseLikelihood = random.randint(spouse_min, spouse_max)/100
+
+
         #-------------------------------------------
         # Helper Functions for Pedigree Propigation
         #-------------------------------------------
@@ -258,9 +280,13 @@ def pedigree_generator(max_children, FamilyID, mode, generation_count, alt_freq=
 Generates a variant table with linked variant based on genotype taken from a given pedigree DAG
 
 '''
-def simulate_variant_table(family_df, sequencing_coverage, mode='AD', n_bg= 5, linked_variant = 'chr1:100000_A>T'):
+def simulate_variant_table(family_df, sequencing_coverage_range, n_bg, alt_freq_range, linked_variant = 'chr1:100000_A>T'):
     family_df.set_index('IndividualID', inplace=True)
     samples = [int(x) for x in family_df.index.values]
+
+    sequence_cov_min, sequence_cov_max = sequencing_coverage_range
+    sequencing_coverage = random.randint(sequence_cov_min,sequence_cov_max)/100
+
 
     #to account for imcomplete sequencing coverage across a pedigree
     sequenced_samples = []
@@ -277,10 +303,12 @@ def simulate_variant_table(family_df, sequencing_coverage, mode='AD', n_bg= 5, l
         VarTable[linked_variant][sample] = family_df.loc[sample]['Genotype']
 
     #filling in unlinked variant table entries using randomly generated gentypes
-    # roughly based on an alternate allele frequency of 10%
+    min_alt_freq, max_alt_freq = alt_freq_range
     for i in range(n_bg):
         VarID = f'chr1:{100200+i}_G>C'
-        VarTable[VarID] = {sample : random.choices([0,1,2],[0.8, 0.18,0.02])[0] for sample in sequenced_samples}
+        q = random.randint(min_alt_freq, max_alt_freq)/100
+        p = 1 - q
+        VarTable[VarID] = {sample : random.choices([0,1,2],[p**2, 2*p*q, q**2])[0] for sample in sequenced_samples}
     
     family_df.reset_index(inplace=True)
 
@@ -292,28 +320,44 @@ def simulate_variant_table(family_df, sequencing_coverage, mode='AD', n_bg= 5, l
 Generates a dictionary of families with each entry containing the generated pedigree DAG graph,
 and variant table data (randomly generated with one linked variant) 
 '''
-def pedigree_group_generator(pedigree_count, mode, max_children, generation_count, sequencing_coverage = 0.75, n_bg= 5, alt_freq = 0):
+def PedGraph_VarTable_generator(
+            #PedGraph Parameters
+            pedigree_count, 
+            mode, 
+            max_children, 
+            generation_count,
+            BackpropLikelihoodRange,
+            SpouseLikelihoodRange, 
+            AffectedSpouse,
+            
+            #VarTable Parameters
+            n_bg, 
+            sequencing_coverage_range, 
+            
+            #PedGraph and VarTable Parameters
+            alt_freq_range
+            ):
+
     Fam_Data_Dict = {}
+
     for Family_Num in range(1, pedigree_count+1):
         FamilyID = f'FAM{Family_Num}'
-
-        #for cases in which alt_frequency is not given (defaults are mode-dependent)
-        #check to see how you can make this align with defaults of pedigree generation
-        if not alt_freq:
-          alt_freq = random.randint(2,8)/100 if mode == 'AD' else random.randint(5,20)/100
 
         #QC check for pedigree
         ped_QC_checks = 0
         ped_QC_pass = False
         while not ped_QC_pass:
             ped_QC_checks += 1
-            ped_df = pedigree_generator(max_children= max_children,
-                                        FamilyID= FamilyID,
-                                        mode= mode,
-                                        generation_count= generation_count,
-                                        alt_freq= alt_freq,
-                                        BackpropLikelihood= random.choice([0.25,0.5,0.75]),
-                                        AffectedSpouse= True)
+            ped_df = pedigree_generator(
+                                    FamilyID= FamilyID,
+                                    max_children= max_children,
+                                    mode= mode,
+                                    generation_count= generation_count,
+                                    alt_freq_range= alt_freq_range,
+                                    BackpropLikelihoodRange= BackpropLikelihoodRange,
+                                    SpouseLikelihoodRange= SpouseLikelihoodRange,
+                                    AffectedSpouse= AffectedSpouse
+                                    )
             ped_dg = construct_pedigree_graph(ped_df)
             affected_nodes = aff(ped_dg)
             if len(affected_nodes) > 1 and len(ped_dg.nodes()) >= (generation_count * 2):
@@ -327,10 +371,12 @@ def pedigree_group_generator(pedigree_count, mode, max_children, generation_coun
         var_QC_pass = False
         while not var_QC_pass:
             var_QC_pass += 1
-            var_dict = simulate_variant_table(family_df= ped_df,
-                                              sequencing_coverage= sequencing_coverage,
-                                              mode= mode,
-                                              n_bg= n_bg)
+            var_dict = simulate_variant_table(
+                                            family_df= ped_df,
+                                            alt_freq_range = alt_freq_range,
+                                            sequencing_coverage_range= sequencing_coverage_range,
+                                            n_bg= n_bg
+                                            )
 
             #checking to make sure there more than 2 seuqneced individuals in the pedigree
             #selects first varID from the list given they should have the same number of entries (number of sequenced samples)
@@ -345,10 +391,14 @@ def pedigree_group_generator(pedigree_count, mode, max_children, generation_coun
 
 
         Fam_Data_Dict[FamilyID] = {'PedGraph': ped_dg, 'VarTable': var_dict}
+
     return Fam_Data_Dict
 
+
+
+
 #################### Variant Table Backpadding ####################
-def VarTableBackpadding(PedGraph, VariantInfoDict, TotalNumberVariants):
+def VarTableBackpadding(PedGraph, VariantInfoDict, TotalNumberVariants, alt_freq_range):
     affected_nodes = aff(G=PedGraph)
     unaffected_nodes = unaff(G=PedGraph)
 
@@ -370,12 +420,18 @@ def VarTableBackpadding(PedGraph, VariantInfoDict, TotalNumberVariants):
             else:
                 print('{group}:{genotype} is not a valid entry for genotype data')
     
-    PaddingCount = TotalNumberVariants - len(VarTable)
+    
     SequencedNodes = set()
     for Variant, NodeGenotypes in VarTable.items():
         SequencedNodes = SequencedNodes.union(set(NodeGenotypes.keys()))
+
+    #filling in unlinked variant table entries using randomly generated gentypes
+    PaddingCount = TotalNumberVariants - len(VarTable)
+    min_alt_freq, max_alt_freq = alt_freq_range
     for i in range(PaddingCount):
         VarID = f'chr1:{100200+i}_G>C'
-        VarTable[VarID] = {sample : random.choices([0,1,2],[0.8, 0.18,0.02])[0] for sample in SequencedNodes}   
+        q = random.randint(min_alt_freq, max_alt_freq)/100
+        p = 1 - q
+        VarTable[VarID] = {node : random.choices([0,1,2],[p**2, 2*p*q, q**2])[0] for node in SequencedNodes}
 
     return VarTable   
