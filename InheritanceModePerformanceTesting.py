@@ -3,10 +3,10 @@ from pprint import pprint
 
 MoIvsPedSize_ThreshResults = {}
 MoIvsPedSize_AccResults = {}
-for pedigree_size in range(2,3):
+for pedigree_size in range(3,5):
   ThreshResult, AccResult  = trial_based_feature_threshold_determination(
                                                     generation_count= pedigree_size,
-                                                    trial_count= 2000,
+                                                    trial_count= 500,
                                                     verbose= True
                             )
   MoIvsPedSize_ThreshResults[pedigree_size] = ThreshResult

@@ -27,23 +27,27 @@ AFFECTED_SPOUSE = True
 ACCURACY_THRESHOLD = 0.7
 
 def trial_based_feature_threshold_determination(
+                #Pedigree Parameters
                 generation_count,
                 trial_count= TRIAL_COUNT,
                 max_children= MAX_CHILDREN,
                 alt_freq_range= ALT_FREQ_RANGE,
-                accuracy_threshold = ACCURACY_THRESHOLD,
                 BackpropLikelihoodRange = BACKPROP_LIKELIHOOD_RANGE,
                 SpouseLikelihoodRange= SPOUSE_LIKELIHOOD_RANGE,
                 AffectedSpouse = AFFECTED_SPOUSE,
+
+                #MoI Classification Parameters
+                accuracy_threshold = ACCURACY_THRESHOLD,
+                size_agnostic = False,
                 verbose = False,
-                size_agnostic = False,):
+                ):
     '''
     Determines optimal inheritence pattern determination thresholds for pedigrees of given generation count
     based on a given number of randomly generated trial pedigrees
     '''
 
     def trail_results_df_generation():
-        nonlocal generation_count, trial_count, alt_freq_range, BackpropLikelihoodRange, SpouseLikelihoodRange, max_children, size_agnostic
+        nonlocal generation_count, trial_count, max_children, alt_freq_range, BackpropLikelihoodRange, SpouseLikelihoodRange,  size_agnostic
 
         all_trial_pedigree_features = pd.DataFrame()
 
@@ -122,6 +126,7 @@ def trial_based_feature_threshold_determination(
         auc_score = auc(FPR_arr, TPR_arr)
 
         return auc_score
+
 
     def ROC_plot(features, TPR_score_dict, FPR_score_dict):
 
@@ -234,7 +239,7 @@ def trial_based_feature_threshold_determination(
         ROC_plot(features= thresholds_dict.keys(),
                  TPR_score_dict= TPR_scores_dict,
                  FPR_score_dict= FPR_scores_dict)
-        print(f'Number of Certain Results: {certainty_ratio}')
+        print(f'Certainty Ratio: {certainty_ratio}')
         print(f'Certain Classification Accuracy: {certain_classification_accuracy}')
         print(f'Overall Classification Accuracy: {overall_classification_accuracy}')
 
@@ -258,9 +263,10 @@ def MoI_classification(
     #checking to see if input is pedigree graph for normal classification or df row for threshold determination calculations
     if isinstance(sample, nx.Graph):
         sample_features = {**pedigree_features(sample), **graph_metrics(sample)}
-    elif isinstance(sample, dict):
+    elif isinstance(sample, pd.Series):
         sample_features = sample
     else:
+        print(type(sample))
         raise TypeError("Input must either be a dictionary with pre-calculated pedigree features or a DAG representation of a pedigree")
 
     votes= 0
