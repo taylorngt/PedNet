@@ -17,6 +17,7 @@ AFFECTED_SPOUSE = True
 
 ############### GLOBAL DEFAULT VARTABLE PARAMETERS #####################
 SEQUENCE_COVERAGE_RANGE = (20, 100)
+VARIANT_BACKGROUND_RANGE = (4, 9)
 
 
 #################### MODULAR VARIANT SCORING METRIC CALCULATION ####################
@@ -372,6 +373,8 @@ def weights_optimization(Multi_Ped_Dict, linked_variant, weight_names, Scoring_M
 # ---------------------------------------------------------------------
 #turn this into generative weights optimization only, and use standalone segregation scoring for real data application
 def trial_based_segregation_scoring_weight_optimization(
+                                                    trial_count= TRIAL_COUNT,
+
                                                     #Segregation Scoring Parameters
                                                     Scoring_Method= 'Original',
                                                     weights= 0,
@@ -379,7 +382,6 @@ def trial_based_segregation_scoring_weight_optimization(
                                                     Verbose= True,
 
                                                     #PedGraph Parameters
-                                                    trial_count= TRIAL_COUNT,
                                                     Mode= 'AD',
                                                     generation_count= 3,
                                                     max_children = MAX_CHILDREN,
@@ -390,7 +392,7 @@ def trial_based_segregation_scoring_weight_optimization(
 
                                                     #VarTable Parameters
                                                     sequencing_coverage_range = SEQUENCE_COVERAGE_RANGE,
-                                                    n_bg = 5,
+                                                    variant_background_range = VARIANT_BACKGROUND_RANGE,
 
                                                     #PedGraph and VarTable Parameters
                                                     alt_freq_range= ALT_FREQ_RANGE,
@@ -400,16 +402,20 @@ def trial_based_segregation_scoring_weight_optimization(
     '''
     Multi_Ped_Dict = PedGraph_VarTable_generator(
                                             pedigree_count= trial_count,
+
+                                            #PedGraph Parameters
                                             mode= Mode,
                                             max_children= max_children,
                                             generation_count= generation_count,
-                                            sequencing_coverage_range= sequencing_coverage_range,
                                             BackpropLikelihoodRange= BackpropLikelihoodRange,
                                             SpouseLikelihoodRange= SpouseLikelihoodRange,
                                             AffectedSpouse= AffectedSpouse,
                                             
-                                            n_bg = n_bg,
+                                            #VarTable Parameters
+                                            sequencing_coverage_range= sequencing_coverage_range,
+                                            variant_background_range= variant_background_range,
                                             
+                                            #PedGraph and VarTable Parameters
                                             alt_freq_range= alt_freq_range,)
     for FamID in Multi_Ped_Dict.keys():
         PedGraph = Multi_Ped_Dict[FamID]['PedGraph']

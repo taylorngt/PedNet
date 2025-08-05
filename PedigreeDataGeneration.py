@@ -280,13 +280,16 @@ def pedigree_generator(
 Generates a variant table with linked variant based on genotype taken from a given pedigree DAG
 
 '''
-def simulate_variant_table(family_df, sequencing_coverage_range, n_bg, alt_freq_range, linked_variant = 'chr1:100000_A>T'):
+def simulate_variant_table(family_df, sequencing_coverage_range, variant_background_range, alt_freq_range, linked_variant = 'chr1:100000_A>T'):
     family_df.set_index('IndividualID', inplace=True)
     samples = [int(x) for x in family_df.index.values]
 
+    #Selecting randomized range parameters
     sequence_cov_min, sequence_cov_max = sequencing_coverage_range
     sequencing_coverage = random.randint(sequence_cov_min,sequence_cov_max)/100
 
+    variant_bg_min, variant_bg_max = variant_background_range
+    n_bg = random.randint(variant_bg_min, variant_bg_max)
 
     #to account for imcomplete sequencing coverage across a pedigree
     sequenced_samples = []
@@ -331,7 +334,7 @@ def PedGraph_VarTable_generator(
             AffectedSpouse,
             
             #VarTable Parameters
-            n_bg, 
+            variant_background_range, 
             sequencing_coverage_range, 
             
             #PedGraph and VarTable Parameters
@@ -375,7 +378,7 @@ def PedGraph_VarTable_generator(
                                             family_df= ped_df,
                                             alt_freq_range = alt_freq_range,
                                             sequencing_coverage_range= sequencing_coverage_range,
-                                            n_bg= n_bg
+                                            variant_background_range= variant_background_range
                                             )
 
             #checking to make sure there more than 2 seuqneced individuals in the pedigree
