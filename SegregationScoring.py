@@ -443,10 +443,7 @@ def trial_based_segregation_scoring_weight_optimization(
             }
         
     #Optimization of weights
-    if Optimization_Method == 'None':
-        print(f'Default {Scoring_Method} Weights:')
-
-    elif Optimization_Method == 'Margin' or Optimization_Method == 'Rank':
+    if Optimization_Method == 'Margin' or Optimization_Method == 'Rank':
         initial_guess = []
         for weight_name in weight_names:
             initial_guess.append(weights[weight_name])
@@ -468,11 +465,9 @@ def trial_based_segregation_scoring_weight_optimization(
                                         Optimization_Method= Optimization_Method,
                                         mode= Mode,
                                         initial_guess= initial_guess)
-        print(f'{Optimization_Method} Optimized {Scoring_Method} Weights:')
-    else:
-        raise NotImplementedError(f'Invalid Optimization Method: {Optimization_Method}')
 
-    pprint_weights(weights)
+
+    
 
 
     All_Family_Score_df = pd.DataFrame(columns=Multi_Ped_Dict.keys())
@@ -508,7 +503,9 @@ def trial_based_segregation_scoring_weight_optimization(
         print(f'{Scoring_Method} Segregation Scoring Results')
         styled_All_Family_Score_df = All_Family_Score_df.style.apply(max_score_highlighter, axis=0)
         styled_All_Family_Score_df
-        print(f'{Scoring_Method} Segregation Scoring Accuracy: {Scoring_Method_Accuracy}')
+        print(f'{Mode} {Scoring_Method} Segregation Scoring Accuracy: {Scoring_Method_Accuracy}')
+        print('Weights Used:')
+        pprint_weights(weights)
 
 
 
