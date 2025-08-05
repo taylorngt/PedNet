@@ -1,93 +1,102 @@
 import pandas as pd
 from SegregationScoring import trial_based_segregation_scoring_weight_optimization
 from pprint import pprint
+import math
+# ---------------------------------------------------------------------
+# BENCHMARKING CONFIGURATIONS
+# ---------------------------------------------------------------------
+NUMBER_TRIALS = 10
+NUMBER_PEDIGREES = 50
+ACC_METRICS = ['Top1', 'AP', 'NDCG']
+
+# ---------------------------------------------------------------------
+# TRIAL ACCURACY METRICS
+# ---------------------------------------------------------------------
+##### Hit at 1 #####
+def calc_hit_at_1(rank_of_linked):
+    '''
+    Returns binary if the linked variant was correctly ranked at position 1 or not
+    '''
+    return 1.0 if rank_of_linked == 1 else 0.0
+
+##### Average Precision #####
+def calc_average_precision(rank_of_linked):
+    '''
+    Returns average precision based on the ranking of the linked variant
+    '''
+    return 1.0 / rank_of_linked
+
+##### Normalized Discounted Cummulative Gain #####
+def calc_NDCG(rank_of_linked):
+    '''
+    Returns NDCG based on the ranking of the linked variant
+    '''
+    return 1.0 / math.log2(rank_of_linked + 1)
+
+##### Accuracy Metrics Calculation Wrapper #####
+def compute_acc_metrics(rank_of_linked):
+    return {
+        'Rank' : rank_of_linked,
+        'Top1' : calc_hit_at_1(rank_of_linked),
+        'AP' : calc_average_precision(rank_of_linked),
+        'NDCG' : calc_NDCG(rank_of_linked)
+    }
 
 # ---------------------------------------------------------------------
 # SEGREGATION SCORING BY OPTIMIZATION AND SCORING METHOD
 # ---------------------------------------------------------------------
-Inheritence_Modes = ['AD', 'AR']
+MODES_OF_INHERITANCE = ['AD', 'AR']
 Scoring_Methods = ['Original', 'Extended']
 Optimization_Methods = ['None', 'Rank']
 
-for Mode in Inheritence_Modes:
-
-    scoring_performance_results_dict = {
-                                        'Optimization Method': Optimization_Methods,
-                                        'Original': [],
-                                        'Extended': []
-                                    }
-
-    for Scoring_Method in Scoring_Methods:
-        for Optimization_Method in Optimization_Methods:
-            test_pedigree_data, optimized_weights, scoring_perfomance = trial_based_segregation_scoring_weight_optimization(
-                                                                                trial_count= 100,
-                                                                                Scoring_Method= Scoring_Method,
-                                                                                Optimization_Method= Optimization_Method,
-                                                                                Mode= Mode,
-                                                                                Verbose= False,
-                                                                                )
-
-            scoring_performance_results_dict[Scoring_Method].append(scoring_perfomance)
-
-
-    scoring_performance_results_df = pd.DataFrame.from_dict(scoring_performance_results_dict).set_index('Optimization Method')
-
-
-
-    print(f'\n{Mode} SCORING PERFORMANCE SUMMARY')
-    print(scoring_performance_results_df)
-
 
 # ---------------------------------------------------------------------
-# SEGREGATION SCORING PERFORMANCE BY PEDIGREE SIZE AND SCORING METHOD
+# MAIN BENCHMARKING LOOP
 # ---------------------------------------------------------------------
-def pedigree_size_performance_test(Generation_Range,
-                                   Pedigree_Count,
-                                   Variant_Count,
-                                   Optimization_Method,
-                                   Mode,
-                                   max_children= 3,
-                                   Known_Linked_Var= 'chr1:100000_A>T',
-                                   Verbose= False,
-                                   VarScore_Readout= False,
-                                   SequenceCoverage= 0.5):
-    pedigree_size_scoring_results_dict = {
-        'Pedigree Size': [],
-        'Original': [],
-        'Extended': []
-    }
-    min_gen = Generation_Range[0]
-    max_gen = Generation_Range[1]
-    for i in range(min_gen, max_gen+1):
-        pedigree_size_scoring_results_dict['Pedigree Size'].append(i)
+accuracy_results = {
+    'AD' : [],
+    'AR' : []
+}
+weights_results = {
+    'AD' : [],
+    'AR' : []
+}
 
-    for Gen_Count in range(min_gen, max_gen+1):
-        print(f'GENERATION COUNT= {Gen_Count} ')
-        for Scoring_Method in ['Original', 'Extended']:
-            _, _, Scoring_Accuracy = trial_based_segregation_scoring_weight_optimization(trial_count= Pedigree_Count,
-                                                                                         Scoring_Method= Scoring_Method,
-                                                                                         Optimization_Method= Optimization_Method,
-                                                                                         Verbose= VarScore_Readout,
-                                                                                         Known_Linked_Var= Known_Linked_Var,
-                                                                                         Mode= Mode,
-                                                                                         max_children= max_children, 
-                                                                                         generation_count= Gen_Count,
-                                                                                         sequencing_coverage= SequenceCoverage,
-                                                                                         n_bg= Variant_Count-1)
-            pedigree_size_scoring_results_dict[Scoring_Method].append(Scoring_Accuracy)
-        print()
+for trial in range(NUMBER_TRIALS):
+    for mode in MODES_OF_INHERITANCE:
+        test_results_dict, optimized_weights = trial_based_segregation_scoring_weight_optimization(
+                                                                trial_count= NUMBER_PEDIGREES,
+                                                                Scoring_Method= 'Original',
+                                                                Optimization_Method= 'Rank',
+                                                                Mode= mode,
+                                                                generation_count= 3
+        )
 
-    pedigree_size_scoring_results_df = pd.DataFrame.from_dict(pedigree_size_scoring_results_dict).set_index('Pedigree Size')
+        weights_results[mode].append(optimized_weights)
 
-    if Verbose:
-        if Optimization_Method == 'None':
-            print(f'{Mode} Pedigree Unoptimized Size Scoring Results')
-        else:
-            print(f'{Mode} Pedigree {Optimization_Method} Optimized Size Scoring Results')
-        
-        print(pedigree_size_scoring_results_df)
+        for PedigreeID in test_results_dict.keys():
+            manual_linked_rank = test_results_dict[PedigreeID]['Original'][f'UnoptimizedLinkedRank']
+            manual_accuracy_metrics = compute_acc_metrics(rank_of_linked= manual_linked_rank)
+            
+            opt_linked_rank = test_results_dict[PedigreeID]['Original'][f'RankLinkedRank']
+            opt_accuracy_metrics = compute_acc_metrics(rank_of_linked= opt_linked_rank)
+            
+            accuracy_results[mode].append({
+                'TrialID': trial,
+                'PedigreeID': PedigreeID,
 
-    return pedigree_size_scoring_results_df
+                'manual_rank' : manual_accuracy_metrics['Rank'],
+                'manual_top1': manual_accuracy_metrics['Top1'],
+                'manual_ap': manual_accuracy_metrics['AP'],
+                'manual_ndcg': manual_accuracy_metrics['NDCG'],
+                
+                'opt_rank' : opt_accuracy_metrics['Rank'],
+                'opt_top1': opt_accuracy_metrics['Top1'],
+                'opt_ap': opt_accuracy_metrics['AP'],
+                'opt_ndcg': opt_accuracy_metrics['NDCG'],
+            })
 
-
-#pedigree_size_performance_test(Generation_Range=(3,4), Mode= 'AR', Pedigree_Count=500, Variant_Count= 5, Verbose= True, Optimization_Method= 'None')
+for mode in MODES_OF_INHERITANCE:
+    df = pd.DataFrame(accuracy_results[mode])
+    df.to_csv(f'{mode}_benchmark_results.csv', index= False)
+    print(f'{mode} results saved: {mode}_benchmark_results.csv')

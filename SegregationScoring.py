@@ -8,9 +8,9 @@ from PedigreeDataGeneration import PedGraph_VarTable_generator
 from IPython.display import display
 
 ############### GLOBAL DEFAULT PEDIGREE PARAMETERS ##################
-TRIAL_COUNT = 500
+TRIAL_COUNT = 1000
 MAX_CHILDREN = 5
-ALT_FREQ_RANGE = (2, 20)
+ALT_FREQ_RANGE = (2, 25)
 BACKPROP_LIKELIHOOD_RANGE = (25, 75)
 SPOUSE_LIKELIHOOD_RANGE = (25, 75)
 AFFECTED_SPOUSE = True
@@ -378,8 +378,8 @@ def trial_based_segregation_scoring_weight_optimization(
                                                     #Segregation Scoring Parameters
                                                     Scoring_Method= 'Original',
                                                     weights= 0,
-                                                    Optimization_Method= 'None',
-                                                    Verbose= True,
+                                                    Optimization_Method= 'Rank',
+                                                    Verbose= False,
 
                                                     #PedGraph Parameters
                                                     Mode= 'AD',
@@ -417,6 +417,8 @@ def trial_based_segregation_scoring_weight_optimization(
                                             
                                             #PedGraph and VarTable Parameters
                                             alt_freq_range= alt_freq_range,)
+    
+    #Pre-calculate Categorical Scores to reduce computation time
     for FamID in Multi_Ped_Dict.keys():
         PedGraph = Multi_Ped_Dict[FamID]['PedGraph']
         VarTable = Multi_Ped_Dict[FamID]['VarTable']
@@ -447,75 +449,110 @@ def trial_based_segregation_scoring_weight_optimization(
                 'w_found': 0.1,
                 'w_depth': 0.1,
             }
-        
+    
+    #Training and Testing Splits
+    training_Multi_Ped_Dict = {}
+    test_Multi_Ped_Dict = {}
+    tt_split = 0.8
+    for FamilyID in Multi_Ped_Dict.keys():
+        if int(FamilyID[3:]) <= int(tt_split*len(Multi_Ped_Dict)):
+            training_Multi_Ped_Dict[FamilyID] = Multi_Ped_Dict[FamilyID]
+        else:
+            test_Multi_Ped_Dict[FamilyID] = Multi_Ped_Dict[FamilyID]
+
     #Optimization of weights
     if Optimization_Method == 'Margin' or Optimization_Method == 'Rank':
         initial_guess = []
         for weight_name in weight_names:
             initial_guess.append(weights[weight_name])
 
-        training_Multi_Ped_Dict = {}
-        test_Multi_Ped_Dict = {}
-        tt_split = 0.8
-        for FamilyID in Multi_Ped_Dict.keys():
-            if int(FamilyID[3:]) <= int(tt_split*len(Multi_Ped_Dict)):
-                training_Multi_Ped_Dict[FamilyID] = Multi_Ped_Dict[FamilyID]
-            else:
-                test_Multi_Ped_Dict[FamilyID] = Multi_Ped_Dict[FamilyID]
         #Downsize the original multiple pedigree dict to the testing data now that we have done training testing split
         Multi_Ped_Dict = test_Multi_Ped_Dict
-        weights= weights_optimization(Multi_Ped_Dict= training_Multi_Ped_Dict,
+        optimized_weights= weights_optimization(Multi_Ped_Dict= training_Multi_Ped_Dict,
                                         linked_variant= 'chr1:100000_A>T',
                                         weight_names= weight_names,
                                         Scoring_Method= Scoring_Method,
                                         Optimization_Method= Optimization_Method,
                                         mode= Mode,
                                         initial_guess= initial_guess)
+    else:
+        raise ValueError(f'Optimization Method: {Optimization_Method} not valid')
 
 
     
 
 
-    All_Family_Score_df = pd.DataFrame(columns=Multi_Ped_Dict.keys())
-    for FamilyID in Multi_Ped_Dict.keys():
+    test_Optimized_Scores_df = pd.DataFrame(columns=test_Multi_Ped_Dict.keys())
+    test_Unoptimized_Scores_df = pd.DataFrame(columns=test_Multi_Ped_Dict.keys())
+    for FamilyID in test_Multi_Ped_Dict.keys():
 
-        PedGraph, VarTable = Multi_Ped_Dict[FamilyID]['PedGraph'], Multi_Ped_Dict[FamilyID]['VarTable']
+        PedGraph, VarTable = test_Multi_Ped_Dict[FamilyID]['PedGraph'], test_Multi_Ped_Dict[FamilyID]['VarTable']
+        CategoricalScores = test_Multi_Ped_Dict[FamilyID]['CategoricalScores']
 
 
-        CategoricalScores = Multi_Ped_Dict[FamilyID]['CategoricalScores']
+        Multi_Ped_Dict[FamilyID][Scoring_Method] = {
+                Optimization_Method : [],
+                'Unoptimized' : []
+        }
 
-
-        Multi_Ped_Dict[FamilyID][Scoring_Method] = {}
         for VarID in VarTable.keys():
-            score = segregation_network_score(PedGraph= PedGraph,
-                                                    VariantEntry= VarTable[VarID],
-                                                    mode= Mode,
-                                                    Scoring_Method= Scoring_Method,
-                                                    weights= weights,
-                                                    categorical_scores= CategoricalScores[VarID])
-            Multi_Ped_Dict[FamilyID][Scoring_Method][VarID] = score
 
 
-        All_Family_Score_df[FamilyID] = Multi_Ped_Dict[FamilyID][Scoring_Method]
+            optimized_score = segregation_network_score(
+                                            PedGraph= PedGraph,
+                                            VariantEntry= VarTable[VarID],
+                                            mode= Mode,
+                                            Scoring_Method= Scoring_Method,
+                                            weights= optimized_weights,
+                                            categorical_scores= CategoricalScores[VarID])
 
-    Correctly_Scored_Pedigrees = 0
-    for FamilyID in Multi_Ped_Dict.keys():
-        if max(Multi_Ped_Dict[FamilyID][Scoring_Method], key= Multi_Ped_Dict[FamilyID][Scoring_Method].get) == 'chr1:100000_A>T':
-            Correctly_Scored_Pedigrees += 1
-    Scoring_Method_Accuracy = Correctly_Scored_Pedigrees/len(Multi_Ped_Dict)
+            unoptimized_score = segregation_network_score(
+                                            PedGraph= PedGraph,
+                                            VariantEntry= VarTable[VarID],
+                                            mode= Mode,
+                                            Scoring_Method= Scoring_Method,
+                                            weights= weights,
+                                            categorical_scores= CategoricalScores[VarID])
+
+            #storing scores at a list of duples (VarID, Score) for ease of sorting for rank extraction
+            test_Multi_Ped_Dict[FamilyID][Scoring_Method][Optimization_Method].append((VarID, optimized_score))
+            test_Multi_Ped_Dict[FamilyID][Scoring_Method]['Unoptimized'].append((VarID, unoptimized_score))
+
+        #Pre-sorting Scores and determining linked variant rank
+        for opt in [Optimization_Method, 'Unoptimized']:
+            score_list = test_Multi_Ped_Dict[FamilyID][Scoring_Method][opt]
+            sorted_score_list = sorted(score_list, key=lambda score: score[1], reverse=True)
+            test_Multi_Ped_Dict[FamilyID][Scoring_Method][opt] = sorted_score_list
+
+            ranks = [Var[0] for Var in sorted_score_list]
+            linked_rank = ranks.index('chr1:100000_A>T') + 1
+            test_Multi_Ped_Dict[FamilyID][Scoring_Method][f'{opt}LinkedRank'] = linked_rank
+        
+
+
+        #TODO fix variant scoring table visualizaiton
+        # Data Frame Construction does not work with list of duple strucutre and vairable number of background variants
+        # test_Optimized_Scores_df[FamilyID] = test_Multi_Ped_Dict[FamilyID][Scoring_Method][Optimization_Method]
+        # test_Unoptimized_Scores_df[FamilyID] = test_Multi_Ped_Dict[FamilyID][Scoring_Method]['Unoptimized']
+
 
     #TODO figure out how to display variant score table in normal python script run
     if Verbose:
-        print(f'{Scoring_Method} Segregation Scoring Results')
-        styled_All_Family_Score_df = All_Family_Score_df.style.apply(max_score_highlighter, axis=0)
-        styled_All_Family_Score_df
-        print(f'{Mode} {Scoring_Method} Segregation Scoring Accuracy: {Scoring_Method_Accuracy}')
-        print('Weights Used:')
+        print(f'{Scoring_Method} Segregation Scoring Results:')
+        styled_test_Optimized_Scores_df = test_Optimized_Scores_df.style.apply(max_score_highlighter, axis=0)
+        styled_test_Optimized_Scores_df
+        
+        print('Unoptimzied Segregation Scoring Results:')
+        styled_test_Unoptimized_Scores_df = test_Unoptimized_Scores_df.style.apply(max_score_highlighter, axis=0)
+        styled_test_Unoptimized_Scores_df
+
+        print('Default Weights:')
         pprint_weights(weights)
+        print('Optimized Weights:')
+        pprint_weights(optimized_weights)
 
 
-
-    return Multi_Ped_Dict, weights, Scoring_Method_Accuracy
+    return test_Multi_Ped_Dict, optimized_weights
 
 
 
