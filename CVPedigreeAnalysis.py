@@ -268,7 +268,7 @@ def pedigree_processing(FamID):
     #----------------------------------------
     # PHENOTYPE AND SEX DETECTION
     #----------------------------------------
-    annotated_img = np.copy(gray_img)
+    nodeless_img = np.copy(redacted_img)
 
     _, threshold_light = cv2.threshold(redacted_img, 250, 255, cv2.THRESH_BINARY)
     _, threshold_dark = cv2.threshold(redacted_img, 5, 255, cv2.THRESH_BINARY_INV)
@@ -288,7 +288,7 @@ def pedigree_processing(FamID):
             bounding_area = w*h
             if bounding_area < 0.25*img_area and bounding_area > 0.0001*img_area and abs(w-h) < (min(w,h) * 0.25):
 
-                redacted_img = cv2.rectangle(redacted_img, (x-35, y-40), (x+w+50, y+h+60), (255,255,255), -1)
+                nodeless_img = cv2.rectangle(nodeless_img, (x-35, y-40), (x+w+50, y+h+60), (255,255,255), -1)
 
                 center_coords = ((x + w/2), y + h/2)
                 label = closestLabel(marker_coords= center_coords, label_dict= IndvIDsDict)
@@ -298,21 +298,18 @@ def pedigree_processing(FamID):
                 ybelow = int(y + 5*h/2)
 
                 display_coords = (xmid, ybelow)
-                colour = (0,0,0)
-                font = cv2.FONT_HERSHEY_DUPLEX
+
 
                 if len(approx) == 4:
-                    cv2.putText(annotated_img, label + ' ' + phenotype + ' male ', display_coords, font, 1, colour, 1)
                     IndvIDsDict[label]['Sex'] = 1
                 else:
-                    cv2.putText(annotated_img, label + ' ' + phenotype+ ' female ', display_coords, font, 1, colour, 1)
                     IndvIDsDict[label]['Sex'] = 2
 
 
     #----------------------------------------
     # RELATION DETECTION
     #----------------------------------------
-    edges = cv2.Canny(redacted_img, 0, 50, apertureSize= 3)
+    edges = cv2.Canny(nodeless_img, 0, 50, apertureSize= 3)
     raw_lines = cv2.HoughLinesP(edges,
                             lines= np.array([]),
                             rho=1, 
@@ -321,7 +318,7 @@ def pedigree_processing(FamID):
                             minLineLength= 5,
                             maxLineGap= img_width*0.1)
 
-    line_img = np.copy(annotated_img)*0
+    line_img = np.copy(redacted_img)*0
     cat_norm_lines = categorize_normalize_lines(raw_lines, img_width, img_height)
 
     lines = merge_duplicate_lines(cat_norm_lines)
@@ -353,6 +350,26 @@ def pedigree_processing(FamID):
             pf.write('\n')
 
     
-    return line_img
+    return redacted_img, nodeless_img, line_img
 
 
+#Function Testing and Image Generation for Plots
+if __name__ == '__main__':
+    FamilyID = input('Eneter A Family ID for testing: ')
+    print(f' Processing {FamilyID}')
+    redacted_img, nodeless_img, line_img = pedigree_processing(FamilyID)
+    
+
+    cv2.imshow(f'{FamilyID} Redacted', redacted_img)
+    cv2.imshow(f'{FamilyID} Nodeless', nodeless_img)
+    cv2.imshow(f'{FamilyID} Relational Lines', line_img)
+
+    k = cv2.waitKey(0)
+    if k == ord('s'):
+        image_path = 'data/CVProcessingImages'
+        makedirs(image_path, exist_ok=True)
+        cv2.imwrite(f'{image_path}/{FamilyID}redacted.png', redacted_img)
+        cv2.imwrite(f'{image_path}/{FamilyID}nodesless.png', nodeless_img)
+        cv2.imwrite(f'{image_path}/{FamilyID}lines.png', line_img)
+
+    cv2.destroyAllWindows
