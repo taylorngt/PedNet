@@ -2,7 +2,7 @@ import random
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, auc
-from PedigreeDAGAnalysis import aff, unaff, construct_pedigree_graph
+from PedigreeDAGAnalysis import aff, unaff, construct_pedigree_graph, plot_pedigree_tree
 
 
 #################### Pedigree Generator ####################
@@ -13,16 +13,20 @@ Generates a pedigree based on given metrics
 def pedigree_generator(
             FamilyID,
             mode, 
-            generation_count,
             max_children,  
+            generation_range,
             alt_freq_range, 
             SpouseLikelihoodRange, 
             BackpropLikelihoodRange,
-            AffectedSpouse,):
+            AffectedSpouse,
+            Max_QC_attempts = 100):
                 
         #-------------------------------------------
         # Range-based Parameter Determination
         #-------------------------------------------
+        gen_min, gen_max = generation_range
+        generation_count = random.randint(gen_min, gen_max)
+        
         alt_freq_min, alt_freq_max = alt_freq_range
         alt_freq = random.randint(alt_freq_min, alt_freq_max)/100
 
@@ -244,34 +248,45 @@ def pedigree_generator(
                     if reproduction_rng <= SpouseLikelihood:
                         recursive_pedigree_construction(current_generation+1, len(family_df))
 
+        #Quality assurance to ensure the generated pedigree has sufficient phenotypic information (>1 affected individuals)
+        QC_attempts = 0
+        QC_pass = False
+        while not QC_pass and QC_attempts < Max_QC_attempts:
+            #-------------------------------------
+            # 1. Construct the empty data frame
+            #-------------------------------------
+            pedigree_construction_columns = ['FamilyID', 'IndividualID', 'PaternalID', 'MaternalID', 'Sex', 'Phenotype', 'Genotype']
+            family_df = pd.DataFrame(columns= pedigree_construction_columns)
+            family_df.set_index('IndividualID', inplace=True)
 
-        #-------------------------------------
-        # 1. Construct the empty data frame
-        #-------------------------------------
-        pedigree_construction_columns = ['FamilyID', 'IndividualID', 'PaternalID', 'MaternalID', 'Sex', 'Phenotype', 'Genotype']
-        family_df = pd.DataFrame(columns= pedigree_construction_columns)
-        family_df.set_index('IndividualID', inplace=True)
+            #-------------------------------------
+            # 2. Generating Primary Founder
+            #-------------------------------------
+            primary_founder_generator()
 
-        #-------------------------------------
-        # 2. Generating Primary Founder
-        #-------------------------------------
-        primary_founder_generator()
+            #--------------------------------------------
+            # 3. Construct Inheritence Pattern Dictionary
+            #--------------------------------------------
+            ref_freq = 1 - alt_freq
+            inheritance_patterns = calc_inheritance_weights(ref_freq, alt_freq)
 
-        #--------------------------------------------
-        # 3. Construct Inheritence Pattern Dictionary
-        #--------------------------------------------
-        ref_freq = 1 - alt_freq
-        inheritance_patterns = calc_inheritance_weights(ref_freq, alt_freq)
+            #----------------------------------------
+            # 4. Generating Pedigree
+            #----------------------------------------
+            recursive_pedigree_construction(current_generation= 0, RelativeAnchorID= 1)
 
-        #----------------------------------------
-        # 4. Generating Pedigree
-        #----------------------------------------
-        recursive_pedigree_construction(current_generation= 0, RelativeAnchorID= 1)
+            #-------------------------------
+            # 5. Resetign Standard Indexing
+            #-------------------------------
+            family_df.reset_index(inplace= True)
 
-        #-------------------------------
-        # 5. Resetign Standard Indexing
-        #-------------------------------
-        family_df.reset_index(inplace= True)
+            QC_attempts += 1
+            affected_sum = family_df['Phenotype'].sum() - len(family_df.index)
+            if affected_sum > 1:
+                QC_pass = True
+            elif QC_attempts >= Max_QC_attempts:
+                print(f'Maximum Phenotypic of {Max_QC_attempts} Coverage Attempts Reached for {FamilyID}. Included to prioritize runtime.')
+                QC_pass = True
 
         return family_df
 

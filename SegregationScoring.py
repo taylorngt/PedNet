@@ -8,8 +8,9 @@ from PedigreeDataGeneration import PedGraph_VarTable_generator
 from IPython.display import display
 
 ############### GLOBAL DEFAULT PEDIGREE PARAMETERS ##################
-TRIAL_COUNT = 1000
+PEDIGREE_COUNT = 1000
 MAX_CHILDREN = 5
+GENERATION_RANGE = (3,4)
 ALT_FREQ_RANGE = (2, 25)
 BACKPROP_LIKELIHOOD_RANGE = (25, 75)
 SPOUSE_LIKELIHOOD_RANGE = (25, 75)
@@ -373,7 +374,7 @@ def weights_optimization(Multi_Ped_Dict, linked_variant, weight_names, Scoring_M
 # ---------------------------------------------------------------------
 #turn this into generative weights optimization only, and use standalone segregation scoring for real data application
 def trial_based_segregation_scoring_weight_optimization(
-                                                    trial_count= TRIAL_COUNT,
+                                                    pedigree_count= PEDIGREE_COUNT,
 
                                                     #Segregation Scoring Parameters
                                                     Scoring_Method= 'Original',
@@ -383,7 +384,7 @@ def trial_based_segregation_scoring_weight_optimization(
 
                                                     #PedGraph Parameters
                                                     Mode= 'AD',
-                                                    generation_count= 3,
+                                                    generation_range = GENERATION_RANGE,
                                                     max_children = MAX_CHILDREN,
                                                     BackpropLikelihoodRange = BACKPROP_LIKELIHOOD_RANGE,
                                                     SpouseLikelihoodRange = SPOUSE_LIKELIHOOD_RANGE,
@@ -401,12 +402,12 @@ def trial_based_segregation_scoring_weight_optimization(
     Takes multi-pedigree data dictionaries as input and outputs the dictionary with updated scores
     '''
     Multi_Ped_Dict = PedGraph_VarTable_generator(
-                                            pedigree_count= trial_count,
+                                            pedigree_count= pedigree_count,
 
                                             #PedGraph Parameters
                                             mode= Mode,
                                             max_children= max_children,
-                                            generation_count= generation_count,
+                                            generation_range= generation_range,
                                             BackpropLikelihoodRange= BackpropLikelihoodRange,
                                             SpouseLikelihoodRange= SpouseLikelihoodRange,
                                             AffectedSpouse= AffectedSpouse,

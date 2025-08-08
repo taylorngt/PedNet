@@ -112,7 +112,7 @@ for mode in modes:
     OptimizedWeightsDict[mode] = {}
     for ped_size in ped_sizes:
         _, OptimizedWeightsDict[mode][ped_size], _ = trial_based_segregation_scoring_weight_optimization(
-                                                        trial_count= 500,
+                                                        pedigree_count= 500,
                                                         Scoring_Method= 'Original',
                                                         Optimization_Method= 'Rank',
                                                         Mode= mode,

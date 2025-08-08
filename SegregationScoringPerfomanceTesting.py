@@ -67,11 +67,11 @@ weights_results = {
 for trial in range(NUMBER_TRIALS):
     for mode in MODES_OF_INHERITANCE:
         test_results_dict, optimized_weights = trial_based_segregation_scoring_weight_optimization(
-                                                                trial_count= NUMBER_PEDIGREES,
+                                                                pedigree_count= NUMBER_PEDIGREES,
                                                                 Scoring_Method= 'Original',
                                                                 Optimization_Method= 'Rank',
                                                                 Mode= mode,
-                                                                generation_count= 3
+                                                                generation_range= (3,3)
         )
 
         Top1s = []

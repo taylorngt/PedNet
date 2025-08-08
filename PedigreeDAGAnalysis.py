@@ -114,10 +114,32 @@ def aff(G):
 def unaff(G):
     return [n for n in G.nodes if G.nodes[n]['phenotype']==1]
 
+# ---------------------------------------------------------------------
+# 3. Pedigree Width
+# ---------------------------------------------------------------------
+def pedigree_width(G: nx.DiGraph) -> int:
+    if not nx.is_directed_acyclic_graph(G):
+        raise ValueError("Graph must be a DAG.")
+    #transitive closure creates new graph including all origianl edges and adding edges between all nodes connected by a path
+    #i.e. for AD pedigree adds 4 edges connecting both grandparents to both of their grandchildren
+    P = nx.algorithms.dag.transitive_closure(G)
+    left  = {f"{n}_L" for n in G}
+    right = {f"{n}_R" for n in G}
+    B = nx.DiGraph()
+    B.add_nodes_from(left,  bipartite=0)
+    B.add_nodes_from(right, bipartite=1)
+    for u, v in P.edges:
+        B.add_edge(f"{u}_L", f"{v}_R")
+    match = nx.algorithms.bipartite.maximum_matching(B, top_nodes=left) #finds maximum number of node pairing each connected by eges that maximizes the number of nodes included in the set (no repeats)
+    # this match includes both directions (one pairing left-right (normal) and one pairing right-left (reverse))
+    matched = len(match) // 2
+    width = G.number_of_nodes() - matched
+    return width
 
-#################### MODULAR PEDIGREE FEATURES ####################
+
+#################### MODULAR PEDIGREE METRICS ####################
 '''
-Features: measures based on inheritence patterns gleaned from pedigree data alone,
+Metrics: measures based on inheritence patterns gleaned from pedigree data alone,
 no use of genotype or graph-specific data
 
 Current List of Features:
@@ -126,8 +148,7 @@ Current List of Features:
 2. Generation Coverage
 3. Affected Sibling Clustering
 4. Average Betweeness of Unaffected
-5. Average Betweeness of Carriers (CURRENTLY EXCLUDED)
-6. Average Betweeness of Carriers in Affected+Carrier Subgraph (CURRENTLY EXCLUDED)
+5. Founder Influence
 '''
 
 # ---------------------------------------------------------------------
@@ -163,67 +184,95 @@ def sibling_aff_ratio(G):
             sib_pairs+=1
     return aa_pairs/sib_pairs if sib_pairs else 0
 
+# ---------------------------------------------------------------------
+# 4. Affected Generational Clustering
+# ---------------------------------------------------------------------
+def gen_aff_clustering(G):
+    #reversing generational presentaiton of nodes
+    aff_nodes = aff(G)
+    gen = generations(G)
+    aff_gens = {gen[n] for n in aff(G)}
+    return (len(aff_nodes)/len(aff_gens)) / pedigree_width(G)
+
 
 # ---------------------------------------------------------------------
-# 4. Average Betweeness of Unaffected
+# 5. Average Betweeness of Unaffected
 # ---------------------------------------------------------------------
 def avg_bet_unaff(G):
-    unaffecteds = unaff(G)
-    bet = nx.betweenness_centrality(G)
-    return np.mean([bet[n] for n in unaffecteds]) if unaffecteds else 0
+    unaff_nodes = unaff(G)
+    aff_nodes = aff(G)
+    unaff_bets = []
+    for node in unaff_nodes:
+        aff_node_SG = G.subgraph(nodes=(aff_nodes + [node]))
+        bet = nx.betweenness_centrality(aff_node_SG)
+        node_bet = bet[node]
+        unaff_bets.append(node_bet)
+    return np.mean(unaff_bets) if unaff_nodes else 0
 
-
-# ---------------------------------------------------------------------
-# 5. Average Betweeness of Carriers
-# ---------------------------------------------------------------------
-'''
-Currently defunct based on necessary inclusion of genotype data
-which is not included in pedigree graph alone
-'''
-# def avg_bet_carrier(G):
-#     carriers = [n for n in unaff(G) if G.nodes[n]['phenotype'] == 1]
-#     bet = nx.betweenness_centrality(G)
-#     return np.mean([bet[n] for n in carriers]) if carriers else 0
 
 
 # ---------------------------------------------------------------------
-# 6. Average Betweeness of Carriers in Affected+Carrier Subgraph
+# 5. Founder Influence
 # ---------------------------------------------------------------------
-'''
-Currently defunct based on necessary inclusion of genotype data
-which is not included in pedigree graph alone
-'''
-# def avg_bet_carrier_subgraph(G):
-#     aff_nodes = aff(G)
-#     unaff_nodes = unaff(G)
-#     carrier_nodes = [n for n in unaff_nodes if G.nodes[n]['genotype'] == 1]
-#     bet = nx.betweenness_centrality(G.subgraph(aff_nodes+carrier_nodes))
-#     return np.mean([bet[n] for n in carrier_nodes]) if carrier_nodes else 0
-
-
+def founder_influence(G) -> Dict[str, float]:
+    phen = nx.get_node_attributes(G, "phenotype")
+    affected = {n for n, p in phen.items() if p == 2}
+    memo_all, memo_aff = {}, {}
+    def paths(u, memo, target=None):
+        key = (u, id(target))
+        if key in memo: return memo[key]
+        total = 1 if target is None or u in target else 0
+        for v in G.successors(u):
+            total += paths(v, memo, target)
+        memo[key] = total
+        return total
+    infl = {}
+    for f in (n for n in G if G.in_degree(n)==0):
+        all_p = paths(f, memo_all, None)
+        aff_p = paths(f, memo_aff, affected)
+        infl[f] = aff_p / all_p if all_p else 0
+    return infl
 
 # ---------------------------------------------------------------------
 # PEDIGREE FEATURES WRAPPER
 # ---------------------------------------------------------------------
-def pedigree_features(G):
+def calc_pedigree_metrics(G):
+    
     return {
         'ratio_aff_parent': ratio_aff_parents(G),
-        'gen_cov': gen_cov(G),
         'sibling_aff_ratio': sibling_aff_ratio(G),
+        'gen_cov': gen_cov(G),
         'avg_bet_unaff': avg_bet_unaff(G),
-
-        # See exclusion reasoning in function description above
-        #'avg_bet_carrier': avg_bet_carrier(G),
-        #'avg_bet_carrier_subgraph': avg_bet_carrier_subgraph(G)
+        'aff_gen_clustering' : gen_aff_clustering(G),
+        #'founder_infl': founder_influence(G),
     }
 
 
 
-#################### MODULAR GRAPH METRICS ####################
-'''
-Metrics: measures based on network structure and phenotype data independent of genotype data
+#################### RULE-BASED MODE OF INHERITENCE FLAGS ####################
+def aff_child_with_unaff_parents(G):
+    aff_nodes = aff(G)
+    for node in aff_nodes:
+        prnts = parents(G, node)
+        if len(prnts) == 2 and not any(G.nodes[p]['phenotype'] == 2 for p in prnts):
+            return True
+    return False
 
-Current List of Metrics:
+def aff_parents_with_unaffected_child(G):
+    unaff_nodes = unaff(G)
+    for node in unaff_nodes:
+        sblngs = siblings(G, node)
+        prnts = parents(G, node)
+        if len(prnts) == 2 and not any(G.nodes[p]['phenotype'] == 1 for p in prnts) and not any(G.nodes[s]['phenotype'] == 2 for s in sblngs):
+            return True
+    return False
+
+
+#################### MODULAR GRAPH FEATURES ####################
+'''
+Features: measures based on network structure and phenotype data independent of genotype data
+
+Current List of Features:
 -------------------------
 1. Number of Nodes
 2. Number of Edges
@@ -234,21 +283,17 @@ Current List of Metrics:
 7. Average Degree Centrality
 8. Average Betweenness Centrality
 9. Average Closeness Centrality
-10. Power Law Alpha  (CURRENTLY EXCLUDED)
-11. Power Law Xmin  (CURRENTLY EXCLUDED)
-12. Sigma Small World (CURRENTLY EXCLUDED)
 13. Pedigree Width
 14. Number of Edges of Transitive Reduction
 15. Transitive Reduction Size Ratio
 16. Longest Path Length
 17. Minimal Founder Coverage Size
-18. Founder Influence
 '''
 
 # ---------------------------------------------------------------------
 # 1. Basic Graph Metrics
 # ---------------------------------------------------------------------
-def basic_graph_metrics(G):
+def basic_graph_features(G):
     G_u = G.to_undirected()
     return {
         'n_nodes': G.number_of_nodes(),
@@ -273,57 +318,10 @@ def centralities(G):
             'avg_closeness': float(np.mean(clos_cent))
     }
 
-# ---------------------------------------------------------------------
-# 3. Small-world Sigma
-# ---------------------------------------------------------------------
-'''
-Currently unused given extreme computational bottleneck
-'''
-# def sigma_small_world(G):
-#     # opted for plug-and-play sigma calculation from NetworkX over first principals calculation
-#     # niter and nrand parameter values lowered to decrease computation time
-#     return nx.sigma(G, niter= 1, nrand= 1)
 
 
 # ---------------------------------------------------------------------
-# 4. Power-law Exponent
-# ---------------------------------------------------------------------
-# '''
-# Previously made use of full graph (floaters included),
-# floater culling may have changed functionaly slightly
-# '''
-# def power_law_exponent(G):
-#     degrees = [d for _, d in G.degree()]
-#     fit = powerlaw.Fit(degrees, discrete=True, verbose=False)
-#     return {
-#         'pl_alpha': round(fit.power_law.alpha, 3),
-#         'pl_xmin': fit.power_law.xmin
-#         }
-
-# ---------------------------------------------------------------------
-# 5. Pedigree Width
-# ---------------------------------------------------------------------
-def pedigree_width(G: nx.DiGraph) -> int:
-    if not nx.is_directed_acyclic_graph(G):
-        raise ValueError("Graph must be a DAG.")
-    #transitive closure creates new graph including all origianl edges and adding edges between all nodes connected by a path
-    #i.e. for AD pedigree adds 4 edges connecting both grandparents to both of their grandchildren
-    P = nx.algorithms.dag.transitive_closure(G)
-    left  = {f"{n}_L" for n in G}
-    right = {f"{n}_R" for n in G}
-    B = nx.DiGraph()
-    B.add_nodes_from(left,  bipartite=0)
-    B.add_nodes_from(right, bipartite=1)
-    for u, v in P.edges:
-        B.add_edge(f"{u}_L", f"{v}_R")
-    match = nx.algorithms.bipartite.maximum_matching(B, top_nodes=left) #finds maximum number of node pairing each connected by eges that maximizes the number of nodes included in the set (no repeats)
-    # this match includes both directions (one pairing left-right (normal) and one pairing right-left (reverse))
-    matched = len(match) // 2
-    width = G.number_of_nodes() - matched
-    return width
-
-# ---------------------------------------------------------------------
-# 6. Transitive Reduction Size
+# 4. Transitive Reduction Size
 # ---------------------------------------------------------------------
 # How does transitive reduction work with our pedigrees?
 # nx.transitive_reduction only returns a list of duples for edges in transitive reduction
@@ -333,13 +331,13 @@ def transitive_reduction_ratio(G):
     return red.number_of_edges()/G.number_of_edges()
 
 # ---------------------------------------------------------------------
-# 7. Longest Path Length
+# 5. Longest Path Length
 # ---------------------------------------------------------------------
 def longest_path_length(G):
     return nx.dag_longest_path_length(G)
 
 # ---------------------------------------------------------------------
-# 8. Minimal Founder Coverage
+# 6. Minimal Founder Coverage
 # ---------------------------------------------------------------------
 def minimal_founder_cover_set(G: nx.DiGraph) -> set:
     """
@@ -361,43 +359,21 @@ def minimal_founder_coverage_size(G: nx.DiGraph) -> float:
     """
     return len(minimal_founder_cover_set(G))
 
-# ---------------------------------------------------------------------
-# 9. Founder Influence
-# ---------------------------------------------------------------------
-def founder_influence(G) -> Dict[str, float]:
-    phen = nx.get_node_attributes(G, "phenotype")
-    affected = {n for n, p in phen.items() if p == 2}
-    memo_all, memo_aff = {}, {}
-    def paths(u, memo, target=None):
-        key = (u, id(target))
-        if key in memo: return memo[key]
-        total = 1 if target is None or u in target else 0
-        for v in G.successors(u):
-            total += paths(v, memo, target)
-        memo[key] = total
-        return total
-    infl = {}
-    for f in (n for n in G if G.in_degree(n)==0):
-        all_p = paths(f, memo_all, None)
-        aff_p = paths(f, memo_aff, affected)
-        infl[f] = aff_p / all_p if all_p else 0
-    return infl
+
 
 
 # ---------------------------------------------------------------------
 # GRAPH METRICS WRAPPER
 # ---------------------------------------------------------------------
-def graph_metrics(G):
-    metrics = {**basic_graph_metrics(G), **centralities(G)}
-    metrics['transitive_reduction_ratio'] = transitive_reduction_ratio(G)
-    #metrics = {**metrics, **power_law_exponent(G)}
-    #metrics['sigma_small_world'] = sigma_small_world(G)
-    metrics['width'] = pedigree_width(G)
-    metrics['longest_path'] = longest_path_length(G)
-    metrics['founder_cover_size'] = minimal_founder_coverage_size(G)
-    metrics['founder_influence'] = founder_influence(G)
+def graph_features(G):
+    features = {**basic_graph_features(G), **centralities(G)}
+    features['transitive_reduction_ratio'] = transitive_reduction_ratio(G)
+    features['width'] = pedigree_width(G)
+    features['longest_path'] = longest_path_length(G)
+    features['founder_cover_size'] = minimal_founder_coverage_size(G)
+    
 
-    return metrics
+    return features
 
 
 # ---------------------------------------------------------------------

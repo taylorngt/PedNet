@@ -2,34 +2,32 @@ import random
 import pandas as pd
 import matplotlib.pyplot as plt
 import networkx as nx
-from sklearn.metrics import accuracy_score, auc
-import pprint
+from sklearn.metrics import accuracy_score, auc, roc_curve
 import numpy as np
-from collections import OrderedDict
-import powerlaw
-import itertools as it
-from typing import Dict, Set, Tuple
-from scipy.optimize import minimize
-import copy
 from pprint import pprint
-from PedigreeDAGAnalysis import generations, aff, construct_pedigree_graph, pedigree_features, graph_metrics, longest_path_length
+from PedigreeDAGAnalysis import generations, aff, construct_pedigree_graph, calc_pedigree_metrics, longest_path_length, aff_child_with_unaff_parents, aff_parents_with_unaffected_child
 from PedigreeDataGeneration import pedigree_generator
+from statistics import median, mode
 
 ############### GLOBAL DEFAULT PEDIGREE PARAMETERS ##################
-TRIAL_COUNT = 500
+PEDIGREE_COUNT = 500
 MAX_CHILDREN = 5
-ALT_FREQ_RANGE = (2, 20)
+GENERATION_RANGE = (4,4)
+ALT_FREQ_RANGE = (5, 25)
 BACKPROP_LIKELIHOOD_RANGE = (25, 75)
 SPOUSE_LIKELIHOOD_RANGE = (25, 75)
 AFFECTED_SPOUSE = True
 
 ############### GLOBAL DEFAULT MoI PARAMETERS #####################
 ACCURACY_THRESHOLD = 0.7
+CONFIDENCE_THRESHOLD = 0.75
+AUC_THRESHOLD = 0.7
 
-def trial_based_feature_threshold_determination(
+def metric_thresholds_determination(
+                pedigree_count= PEDIGREE_COUNT,
+
                 #Pedigree Parameters
-                generation_count,
-                trial_count= TRIAL_COUNT,
+                generation_range= GENERATION_RANGE, #TODO ROBUSTLY DETERMINE IF PEDIGREE SIZE CHANGES ACCURACY AND THRESHOLDS
                 max_children= MAX_CHILDREN,
                 alt_freq_range= ALT_FREQ_RANGE,
                 BackpropLikelihoodRange = BACKPROP_LIKELIHOOD_RANGE,
@@ -37,218 +35,131 @@ def trial_based_feature_threshold_determination(
                 AffectedSpouse = AFFECTED_SPOUSE,
 
                 #MoI Classification Parameters
-                accuracy_threshold = ACCURACY_THRESHOLD,
-                size_agnostic = False,
-                verbose = False,
+                auc_threshold = AUC_THRESHOLD,
                 ):
     '''
     Determines optimal inheritence pattern determination thresholds for pedigrees of given generation count
     based on a given number of randomly generated trial pedigrees
     '''
 
-    def trail_results_df_generation():
-        nonlocal generation_count, trial_count, max_children, alt_freq_range, BackpropLikelihoodRange, SpouseLikelihoodRange,  size_agnostic
+    
+    #Training/Testing Split
+    training_pedigree_set_size = int(0.8*pedigree_count)
+    testing_pedigree_set_size = pedigree_count - training_pedigree_set_size
 
-        all_trial_pedigree_features = pd.DataFrame()
+    #TRAINING
+    #Generate Training Pedigree Data
+    training_trial_metrics_df = pd.DataFrame()
+    for pedigree_num in range(training_pedigree_set_size):
 
-        for trialID in range(1, trial_count+1):
+        FamilyID = 'Fam' + str(pedigree_num+1)
+        true_mode = random.choice(['AD', 'AR'])
 
-            FamilyID = 'TestFam' + str(trialID)
-            actual_mode = random.choice(['AD', 'AR'])
-
-            #Accounting for cases where we want thresholds that are not specific to a generation count
-            if size_agnostic:
-                #Run time seems to increase indefinitely if left to be size_agnostic so currently unusable feature
-                trial_generation_count = random.randint(3, generation_count)
-            else:
-                trial_generation_count = generation_count
-
-            QC_pass = False
-            while not QC_pass:
-                trial_df = pedigree_generator(
-                                            FamilyID= FamilyID,
-                                            mode= actual_mode,
-                                            max_children= max_children,
-                                            generation_count= trial_generation_count,
-                                            BackpropLikelihoodRange= BackpropLikelihoodRange,
-                                            SpouseLikelihoodRange= SpouseLikelihoodRange,
-                                            alt_freq_range= alt_freq_range,
-                                            AffectedSpouse= AffectedSpouse)
-
-                trial_dg = construct_pedigree_graph(trial_df)
-
-                affecteded_nodes = aff(trial_dg)
-                if len(affecteded_nodes) > 1 and len(trial_dg.nodes()) > (generation_count * 2) - 1:
-                    QC_pass = True
-
-
-            trial_feat_met_dict = {**pedigree_features(trial_dg), **graph_metrics(trial_dg)}
-            trial_feat_met_dict['actual_mode'] = actual_mode
-            trial_feat_met_df = pd.DataFrame(trial_feat_met_dict, index= [0])
-
-            all_trial_pedigree_features = pd.concat(objs= [all_trial_pedigree_features, trial_feat_met_df], ignore_index=True)
-
-        return all_trial_pedigree_features
+        pedigree_df = pedigree_generator(
+                                    FamilyID= FamilyID,
+                                    mode= true_mode,
+                                    max_children= max_children,
+                                    generation_range= generation_range,
+                                    alt_freq_range= alt_freq_range,
+                                    SpouseLikelihoodRange= SpouseLikelihoodRange,
+                                    BackpropLikelihoodRange= BackpropLikelihoodRange,
+                                    AffectedSpouse= AffectedSpouse)
 
 
 
+        pedigree_dg = construct_pedigree_graph(pedigree_df)
+        pedigree_metrics = calc_pedigree_metrics(pedigree_dg)
+        pedigree_metrics['true_mode'] = true_mode
+        pedigree_metrics_df = pd.DataFrame(pedigree_metrics, index= [0])
 
-    def ROC_param_calc(true_labels, predicted_labels):
-        real_pos_count = 0
-        real_neg_count = 0
-        true_pos_count = 0
-        false_pos_count = 0
+        training_trial_metrics_df = pd.concat(objs= [training_trial_metrics_df, pedigree_metrics_df], ignore_index=True)
 
-        for i in range(len(true_labels)):
-            if true_labels[i] == 'AD':
-                real_pos_count += 1
-                if predicted_labels[i] == 'AD':
-                    true_pos_count += 1
-            elif true_labels[i] == 'AR':
-                real_neg_count += 1
-                if predicted_labels[i] == 'AD':
-                    false_pos_count += 1
-
-
-        TPR = true_pos_count/real_pos_count
-        FPR = false_pos_count/real_neg_count
-
-        return TPR, FPR
-
-    def AUC_calc(FPR_scores, TPR_scores):
-        FPR_arr = np.array(FPR_scores)
-        TPR_arr = np.array(TPR_scores)
-
-        sort_indx = np.argsort(FPR_arr)
-        FPR_arr = FPR_arr[sort_indx]
-        TPR_arr = TPR_arr[sort_indx]
-
-        auc_score = auc(FPR_arr, TPR_arr)
-
-        return auc_score
+    #List of available metrics for testing
+    metric_list = [metric for metric in training_trial_metrics_df.columns.to_list() if metric != 'true_mode']
+    
+    #Extracting true mode values as separate list and storing indices for each MoI
+    Y_true_mode = training_trial_metrics_df['true_mode'].values
+    
+    AD_indeces, AR_indeces = [], []
+    for i in range(len(Y_true_mode)):
+        if Y_true_mode[i] == 'AD':
+            AD_indeces.append(i)
+        elif Y_true_mode[i] == 'AR':
+            AR_indeces.append(i)
 
 
-    def ROC_plot(features, TPR_score_dict, FPR_score_dict):
+    #ROC Analysis for Training Data
+    threshold_results = {}
+    for metric in metric_list:
+        X_metric = training_trial_metrics_df[metric].values
 
-        fig = plt.figure()
-        ax = plt.subplot(111)
+        #Calculate ROC
+        fpr, tpr, thresh = roc_curve(Y_true_mode, X_metric, pos_label='AD')
 
-        for feature in features:
-            AUC_score = AUC_calc(FPR_scores= FPR_score_dict[feature],
-                                 TPR_scores= TPR_score_dict[feature])
-            ax.plot(FPR_score_dict[feature], TPR_score_dict[feature],
-                    label= f'{feature} = {AUC_score:.2f}')
+        #Calculate AUC based on ROC
+        auc_score = auc(fpr, tpr)
 
-        ax.plot([0,1], [0,1], linestyle='--', color='gray')
-        ax.set_xlabel('False Positive Rate')
-        ax.set_ylabel('True Positive Rate')
-        ax.set_title(f'Mode of Inheritance ROC')
-        ax.grid(True)
+        #Best Threshold Determination from ROC
+        Youden_J_values = tpr - fpr # works because tpr and fpr are numpy arrays
+        best_index = 0
+        best_YJ = 0
+        for i in range(len(Youden_J_values)):
+            if Youden_J_values[i] > best_YJ:
+                best_index = i
+        best_threshold = thresh[best_index]
+        
+        #Threshold Direction Determination from ROC
+        avg_metric_AD = np.mean([X_metric[i] for i in AD_indeces])
+        avg_metric_AR = np.mean([X_metric[i] for i in AR_indeces])
+        direction = 'HIGH->AD' if avg_metric_AD > avg_metric_AR else 'HIGH->AR'
 
-        box= ax.get_position()
-        ax.set_position([box.x0, box.y0, box.width*0.8, box.height])
-        ax.legend(loc='center left', bbox_to_anchor=(1, 0.5),
-                  ncol= 2, fancybox=True, shadow=True)
-        plt.show()
+        threshold_results[metric] = {
+            'threshold': best_threshold,
+            'direction': direction,
+            'auc': auc_score
+        }
+    
+    #Filtering metrics down to those deemed accurate enough on this trial to use on testing data
+    selected_metrics = {}
+    for metric in threshold_results.keys():
+        if threshold_results[metric]['auc'] >= auc_threshold:
+            selected_metrics[metric] = threshold_results[metric]
+    
+    #TESTING
+    classification_results = []
+    for pedigree_num in range(testing_pedigree_set_size):
+        
+        PedigreeID = 'Fam' + str(pedigree_num+1)
+        true_mode = random.choice(['AD', 'AR'])
 
+        pedigree_df = pedigree_generator(
+                                    FamilyID= PedigreeID,
+                                    mode= true_mode,
+                                    max_children= max_children,
+                                    generation_range= generation_range,
+                                    alt_freq_range= alt_freq_range,
+                                    SpouseLikelihoodRange= SpouseLikelihoodRange,
+                                    BackpropLikelihoodRange= BackpropLikelihoodRange,
+                                    AffectedSpouse= AffectedSpouse)
+        
+        pedigree_dg = construct_pedigree_graph(pedigree_df)
+        predicted_mode = MoI_classification(
+                                G= pedigree_dg,
+                                thresholds_dict= selected_metrics)
+        pedigree_metric_values = calc_pedigree_metrics(pedigree_dg)
 
-    def single_feature_threshold_determination(feature_values, actual_mode_labels):
-        min_value = min(feature_values)
-        max_value = max(feature_values)
-        thresh_increment = (max_value - min_value)/100
-        min_value = min_value - thresh_increment
-        threshold_options = [min_value+(thresh_increment*i) for i in range(103)]
+        pedigree_results = {}
+        pedigree_results['PedigreeID'] = PedigreeID
+        pedigree_results['TrueMode'] = true_mode
+        pedigree_results['PredictedMode'] = predicted_mode
+        for metric, value in pedigree_metric_values.items():
+            pedigree_results[metric] = value
 
-        best_threshold = None
-        best_accuracy = 0
-        best_direction = None
-
-        #Test accuracy of each threshold (both as upper and lower limit of AD classification) and store accuracy score
-        TPR_scores = []
-        FPR_scores = []
-        for threshold in threshold_options:
-            greater_equal_predictions = ['AD' if value > threshold else 'AR' for value in feature_values]
-            less_predictions = ['AD' if value <= threshold else 'AR' for value in feature_values]
-
-            greater_equal_accuracy = accuracy_score(actual_mode_labels, greater_equal_predictions)
-            less_accuracy = accuracy_score(actual_mode_labels, less_predictions)
-
-            if greater_equal_accuracy > best_accuracy:
-                best_accuracy = greater_equal_accuracy
-                best_threshold = threshold
-                best_direction = 'greater'
-            elif less_accuracy > best_accuracy:
-                best_accuracy = less_accuracy
-                best_threshold = threshold
-                best_direction = 'less_equal'
-
-            TPR, FPR = ROC_param_calc(actual_mode_labels, greater_equal_predictions)
-            TPR_scores.append(TPR)
-            FPR_scores.append(FPR)
-
-        return best_threshold, best_direction, best_accuracy, TPR_scores, FPR_scores
-
-    accuracy_checks = 0
-    max_accuracy_checks = 5
-    accuracy_QC_pass = False
-    while not accuracy_QC_pass and accuracy_checks < max_accuracy_checks:
-        accuracy_checks += 1
-        trial_features_df = trail_results_df_generation()
-        training_features_df = trial_features_df.sample(frac=0.8)
-        testing_features_df = trial_features_df.drop(training_features_df.index)
-
-
-
-        TPR_scores_dict = {}
-        FPR_scores_dict = {}
-        thresholds_dict = {}
-        for feature in trial_features_df.columns.values:
-            if feature == 'FamID' or feature == 'actual_mode':
-                continue
-            threshold, direction, accuracy, TPR_scores, FPR_scores = single_feature_threshold_determination(training_features_df[feature].values,
-                                                                                                            training_features_df['actual_mode'].values)
-            thresholds_dict[feature] = {'threshold': threshold, 'direction': direction, 'accuracy': accuracy}
-            TPR_scores_dict[feature] = TPR_scores
-            FPR_scores_dict[feature] = FPR_scores
-
-        mode_prediction_field = []
-        for _,row in testing_features_df.iterrows():
-            predicted_mode = MoI_classification(sample = row,
-                                                                thresholds_dict = thresholds_dict,
-                                                                accuracy_threshold= accuracy_threshold)
-            mode_prediction_field.append(predicted_mode)
-        testing_features_df['predicted_mode'] = mode_prediction_field
-
-        overall_classification_accuracy = accuracy_score(y_true= testing_features_df['actual_mode'],
-                                                         y_pred= testing_features_df['predicted_mode'])
-
-        certain_test_results_df = testing_features_df[testing_features_df['predicted_mode']!='Uncertain']
-        num_certain_results = len(certain_test_results_df)
-        certain_classification_accuracy = accuracy_score(y_true= certain_test_results_df['actual_mode'],
-                                                         y_pred= certain_test_results_df['predicted_mode'])
-
-        if certain_classification_accuracy >= accuracy_threshold and num_certain_results/len(testing_features_df) >= accuracy_threshold:
-            accuracy_QC_pass = True
-        else:
-            accuracy_checks += 1
+        classification_results.append(pedigree_results)
 
 
-
-    certainty_ratio = num_certain_results/len(testing_features_df)
-    if verbose:
-        ROC_plot(features= thresholds_dict.keys(),
-                 TPR_score_dict= TPR_scores_dict,
-                 FPR_score_dict= FPR_scores_dict)
-        print(f'Certainty Ratio: {certainty_ratio}')
-        print(f'Certain Classification Accuracy: {certain_classification_accuracy}')
-        print(f'Overall Classification Accuracy: {overall_classification_accuracy}')
-
-    accuracy_metrics = {'certainty_ratio': certainty_ratio,
-                        'certain_class_acc': certain_classification_accuracy,
-                        'overall_class_acc': overall_classification_accuracy}
-
-    return thresholds_dict, accuracy_metrics
-
+        
+    return classification_results, threshold_results
 
 
 
@@ -256,86 +167,52 @@ def trial_based_feature_threshold_determination(
 
 
 def MoI_classification(
-            sample,
+            G,
             thresholds_dict,
-            accuracy_threshold= 0.7,
+            confidence_threshold= CONFIDENCE_THRESHOLD,
             ) -> str:
-    #checking to see if input is pedigree graph for normal classification or df row for threshold determination calculations
-    if isinstance(sample, nx.Graph):
-        sample_features = {**pedigree_features(sample), **graph_metrics(sample)}
-    elif isinstance(sample, pd.Series):
-        sample_features = sample
-    else:
-        print(type(sample))
-        raise TypeError("Input must either be a dictionary with pre-calculated pedigree features or a DAG representation of a pedigree")
 
-    votes= 0
+    
+
+    AD_votes= 0
+    AR_votes= 0
     total= 0
-    for feature, descriptors in thresholds_dict.items():
+    #rule-based vote tabulation
+    total += 1
+    if aff_child_with_unaff_parents(G):
+        AR_votes += 2
+
+    #threshold-based vote tabulation
+    sample_metrics = calc_pedigree_metrics(G)
+
+    for metric, descriptors in thresholds_dict.items():
+
         threshold = descriptors['threshold']
         direction = descriptors['direction']
-        accuracy = descriptors['accuracy']
-        feature_value = sample_features[feature]
 
-        if accuracy >= accuracy_threshold:
-            total += 1
-            if direction == 'greater':
-                if feature_value > threshold:
-                    votes += 1
-            elif direction == 'less_equal':
-                if feature_value <= threshold:
-                    votes += 1
+        metric_value = sample_metrics[metric]
+
+        total += 1
+        if direction == 'HIGH->AD':
+            if metric_value >= threshold:
+                AD_votes += 1
+            else:
+                AR_votes += 1
+        elif direction == 'HIGH->AR':
+            if metric_value >= threshold:
+                AR_votes += 1
+            else:
+                AD_votes += 1
 
     if total == 0:
         return 'Uncertain'
-    elif votes/total > 0.75:
+    elif AD_votes/total >= confidence_threshold:
         return 'AD'
-    elif votes/total < 0.25:
+    elif AR_votes/total >= confidence_threshold:
         return 'AR'
     else:
         return 'Uncertain'
 
-# def classify_pedigree(PedGraph, thresholds_dict, accuracy_threshold = 0.7) -> str:
-
-#     pedigree_feats_mets = 
-
-#     return inheritance_pattern_classification(sample_features= pedigree_feats_mets,
-#                                               thresholds_dict= thresholds_dict,
-#                                               accuracy_threshold= accuracy_threshold)
 
 
 
-
-# def classify_multiple_pedigrees(Multi_Ped_Dict: dict, thresholds_dict= 0, same_size= True, Verbose= False):
-#     if same_size:
-#         if not thresholds_dict:
-#             threshold_basis_graph = random.choice(list(Multi_Ped_Dict.values()))['PedGraph']
-#             thresholds_dict, _ = trial_based_feature_threshold_determination(generation_count= longest_path_length(threshold_basis_graph)+1)
-#         for FamilyID in Multi_Ped_Dict.keys():
-#             FamilyDG = Multi_Ped_Dict[FamilyID]['PedGraph']
-#             Multi_Ped_Dict[FamilyID]['PredMode'] = classify_pedigree(G= FamilyDG, thresholds_dict= thresholds_dict)
-#     else:
-#         pedigree_sizes = set()
-#         for FamilyID in Multi_Ped_Dict.keys():
-#             FamilyDG = Multi_Ped_Dict[FamilyID]['PedGraph']
-#             pedigree_sizes.add(longest_path_length(FamilyDG)+1)
-#         thresholds_2d_dict = {}
-
-#         for pedigree_size in pedigree_sizes:
-#             thresholds_2d_dict[pedigree_size], _ = trial_based_feature_threshold_determination(generation_count= pedigree_size, verbose= Verbose)
-
-#         for FamilyID in Multi_Ped_Dict.keys():
-#             FamilyDG = Multi_Ped_Dict[FamilyID]['PedGraph']
-#             Multi_Ped_Dict[FamilyID]['PredMode'] = classify_pedigree(PedGraph= FamilyDG, thresholds_dict= thresholds_2d_dict[longest_path_length(FamilyDG)+1])
-
-#     return Multi_Ped_Dict
-
-# def pedigree_group_mode_agreement(Multi_Ped_Dict: dict):
-#     '''
-#     Returns the mutliple pedigree data file with updated predicted modes as well as the
-#     most prevelant inheritance mode classification found in the predicted modes
-#     '''
-#     Multi_Ped_Dict = classify_multiple_pedigrees(Multi_Ped_Dict)
-#     mode_lst = [Multi_Ped_Dict[FamilyID]['PredMode'] for FamilyID in Multi_Ped_Dict.keys()]
-#     agreed_mode = max(set(mode_lst), key= mode_lst.count)
-#     return Multi_Ped_Dict, agreed_mode
