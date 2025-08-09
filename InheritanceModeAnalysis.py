@@ -36,6 +36,9 @@ def metric_thresholds_determination(
 
                 #MoI Classification Parameters
                 auc_threshold = AUC_THRESHOLD,
+
+                #Display Parameters
+                roc_display = False
                 ):
     '''
     Determines optimal inheritence pattern determination thresholds for pedigrees of given generation count
@@ -87,14 +90,23 @@ def metric_thresholds_determination(
         elif Y_true_mode[i] == 'AR':
             AR_indeces.append(i)
 
+    #Prepping all-metric ROC figure depending on display options
+    if roc_display:
+        plt.figure(figsize=(7,7))
 
     #ROC Analysis for Training Data
     threshold_results = {}
     for metric in metric_list:
         X_metric = training_trial_metrics_df[metric].values
 
+        #Threshold Direction Determination for ROC
+        avg_metric_AD = np.mean([X_metric[i] for i in AD_indeces])
+        avg_metric_AR = np.mean([X_metric[i] for i in AR_indeces])
+        direction = 'HIGH->AD' if avg_metric_AD > avg_metric_AR else 'HIGH->AR'
+        positive_label = 'AD' if avg_metric_AD > avg_metric_AR else 'AR'
+
         #Calculate ROC
-        fpr, tpr, thresh = roc_curve(Y_true_mode, X_metric, pos_label='AD')
+        fpr, tpr, thresh = roc_curve(Y_true_mode, X_metric, pos_label=positive_label)
 
         #Calculate AUC based on ROC
         auc_score = auc(fpr, tpr)
@@ -108,16 +120,16 @@ def metric_thresholds_determination(
                 best_index = i
         best_threshold = thresh[best_index]
         
-        #Threshold Direction Determination from ROC
-        avg_metric_AD = np.mean([X_metric[i] for i in AD_indeces])
-        avg_metric_AR = np.mean([X_metric[i] for i in AR_indeces])
-        direction = 'HIGH->AD' if avg_metric_AD > avg_metric_AR else 'HIGH->AR'
 
         threshold_results[metric] = {
             'threshold': best_threshold,
             'direction': direction,
             'auc': auc_score
         }
+
+        #Plotting ROC depending on display options
+        if roc_display:
+            plt.plot(fpr, tpr, lw=2, label=f'{metric} (AUC = {auc_score:.2f})')
     
     #Filtering metrics down to those deemed accurate enough on this trial to use on testing data
     selected_metrics = {}
@@ -125,6 +137,18 @@ def metric_thresholds_determination(
         if threshold_results[metric]['auc'] >= auc_threshold:
             selected_metrics[metric] = threshold_results[metric]
     
+    #Displaying ROC plot depending on display paramters
+    if roc_display:
+        plt.plot([0, 1], [0, 1], color="gray", linestyle="--")
+        plt.xlim([0, 1])
+        plt.ylim([0, 1.05])
+        plt.xlabel("False Positive Rate")
+        plt.ylabel("True Positive Rate")
+        plt.title("MoI Metric ROC Curves")
+        plt.legend(loc="lower right", fontsize="small")
+        plt.show()
+
+
     #TESTING
     classification_results = []
     for pedigree_num in range(testing_pedigree_set_size):
@@ -177,10 +201,12 @@ def MoI_classification(
     AD_votes= 0
     AR_votes= 0
     total= 0
+    
     #rule-based vote tabulation
-    total += 1
     if aff_child_with_unaff_parents(G):
-        AR_votes += 2
+        total += 1
+        AR_votes += 1
+
 
     #threshold-based vote tabulation
     sample_metrics = calc_pedigree_metrics(G)

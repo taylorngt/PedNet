@@ -192,7 +192,12 @@ def gen_aff_clustering(G):
     aff_nodes = aff(G)
     gen = generations(G)
     aff_gens = {gen[n] for n in aff(G)}
-    return (len(aff_nodes)/len(aff_gens)) / pedigree_width(G)
+    aff_gen_clusters = {g:0 for g in aff_gens}
+    for node in aff_nodes:
+        aff_gen_clusters[gen[node]] += 1
+    avg_aff_gen_cluster = sum(aff_gen_clusters.values())/ len(aff_gen_clusters)
+    #normalize to pedigree width
+    return avg_aff_gen_cluster / pedigree_width(G)
 
 
 # ---------------------------------------------------------------------
@@ -207,7 +212,8 @@ def avg_bet_unaff(G):
         bet = nx.betweenness_centrality(aff_node_SG)
         node_bet = bet[node]
         unaff_bets.append(node_bet)
-    return np.mean(unaff_bets) if unaff_nodes else 0
+    #trying to normalize it to the size of the affected subgraph
+    return sum(unaff_bets)/len(unaff_bets) if unaff_bets else 0
 
 
 

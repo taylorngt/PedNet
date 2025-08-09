@@ -6,7 +6,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 # ---------------------------------------------------------------------
 # BENCHMARKING CONFIGURATIONS
 # ---------------------------------------------------------------------
-NUMBER_TRIALS = 30
+NUMBER_TRIALS = 50
 NUMBER_PEDIGREES = 1000
 
 
@@ -25,8 +25,8 @@ def evaluate_predictions(true_mode_array, predicted_mode_array):
       'F1': f1_score(true_mode_array, predicted_mode_array, labels = ['AD', 'AR'], average= 'micro'),
 
       #Mode-specific Precision Analysis
-      'precision_AD' : precision_score(true_mode_array, predicted_mode_array, pos_label= 'AD'),
-      'precision_AD' : precision_score(true_mode_array, predicted_mode_array, pos_label= 'AR')
+      'precision_AD' : precision_score(true_mode_array, predicted_mode_array, labels= ['AD'], average='micro'),
+      'precision_AR' : precision_score(true_mode_array, predicted_mode_array, labels= ['AR'], average='micro')
     }
 
 # ---------------------------------------------------------------------
@@ -37,8 +37,7 @@ trial_evaluated_threshold_results = []
 for trial in range(NUMBER_TRIALS):
     classification_results, threshold_results = metric_thresholds_determination(
                                                     pedigree_count= NUMBER_PEDIGREES,
-                                                    generation_range= (3,3)
-                                                    )
+                                                    generation_range= (3,5))
     classification_results_df = pd.DataFrame(classification_results)
     trial_prediction_evals = evaluate_predictions(
                                   true_mode_array= classification_results_df['TrueMode'],

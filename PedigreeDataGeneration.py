@@ -290,6 +290,8 @@ def pedigree_generator(
 
         return family_df
 
+
+
 #################### Variant Table Generator ####################
 '''
 Generates a variant table with linked variant based on genotype taken from a given pedigree DAG
