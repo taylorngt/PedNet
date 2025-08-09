@@ -176,6 +176,7 @@ def metric_thresholds_determination(
         pedigree_results['PedigreeID'] = PedigreeID
         pedigree_results['TrueMode'] = true_mode
         pedigree_results['PredictedMode'] = predicted_mode
+        pedigree_results['PedigreeSize'] = (max(generations(pedigree_dg).values())+1)
         for metric, value in pedigree_metric_values.items():
             pedigree_results[metric] = value
 
@@ -201,11 +202,10 @@ def MoI_classification(
     AD_votes= 0
     AR_votes= 0
     total= 0
-    
-    #rule-based vote tabulation
+
+    #rule-based hard classification
     if aff_child_with_unaff_parents(G):
-        total += 1
-        AR_votes += 1
+        return 'AR'
 
 
     #threshold-based vote tabulation

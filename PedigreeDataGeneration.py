@@ -345,7 +345,7 @@ def PedGraph_VarTable_generator(
             pedigree_count, 
             mode, 
             max_children, 
-            generation_count,
+            generation_range,
             BackpropLikelihoodRange,
             SpouseLikelihoodRange, 
             AffectedSpouse,
@@ -363,28 +363,19 @@ def PedGraph_VarTable_generator(
     for Family_Num in range(1, pedigree_count+1):
         FamilyID = f'FAM{Family_Num}'
 
-        #QC check for pedigree
-        ped_QC_checks = 0
-        ped_QC_pass = False
-        while not ped_QC_pass:
-            ped_QC_checks += 1
-            ped_df = pedigree_generator(
-                                    FamilyID= FamilyID,
-                                    max_children= max_children,
-                                    mode= mode,
-                                    generation_count= generation_count,
-                                    alt_freq_range= alt_freq_range,
-                                    BackpropLikelihoodRange= BackpropLikelihoodRange,
-                                    SpouseLikelihoodRange= SpouseLikelihoodRange,
-                                    AffectedSpouse= AffectedSpouse
-                                    )
-            ped_dg = construct_pedigree_graph(ped_df)
-            affected_nodes = aff(ped_dg)
-            if len(affected_nodes) > 1 and len(ped_dg.nodes()) >= (generation_count * 2):
-                ped_QC_pass = True
-            elif ped_QC_checks >= 50:
-                print(f'{mode} {FamilyID}: Failed Pedigree Contruction QC checks, included despite QC failure to prioritize futher operations')
-                ped_QC_pass = True
+        ped_df = pedigree_generator(
+                                FamilyID= FamilyID,
+                                max_children= max_children,
+                                mode= mode,
+                                generation_range= generation_range,
+                                alt_freq_range= alt_freq_range,
+                                BackpropLikelihoodRange= BackpropLikelihoodRange,
+                                SpouseLikelihoodRange= SpouseLikelihoodRange,
+                                AffectedSpouse= AffectedSpouse
+                                )
+        ped_dg = construct_pedigree_graph(ped_df)
+        affected_nodes = aff(ped_dg)
+
 
         #QC check for variant table
         var_QC_checks = 0

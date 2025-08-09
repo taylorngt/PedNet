@@ -3,6 +3,7 @@ from SegregationScoring import trial_based_segregation_scoring_weight_optimizati
 from pprint import pprint
 import math
 import matplotlib.pyplot as plt
+from os import makedirs
 from scipy.stats import ttest_rel, wilcoxon
 # ---------------------------------------------------------------------
 # BENCHMARKING CONFIGURATIONS
@@ -65,6 +66,7 @@ weights_results = {
 }
 
 for trial in range(NUMBER_TRIALS):
+    print(f'Currently Running: Trial #{trial+1}')
     for mode in MODES_OF_INHERITANCE:
         test_results_dict, optimized_weights = trial_based_segregation_scoring_weight_optimization(
                                                                 pedigree_count= NUMBER_PEDIGREES,
@@ -74,21 +76,33 @@ for trial in range(NUMBER_TRIALS):
                                                                 generation_range= (3,3)
         )
 
-        Top1s = []
-        average_precisions = []
+        manual_Top1s = []
+        manual_APs = []
+        manual_NDCGs = []
+
+        opt_Top1s = []
+        opt_APs = []
+        opt_NDCGs = []
+
         for PedigreeID in test_results_dict.keys():
             manual_linked_score = test_results_dict[PedigreeID]['Original'][f'UnoptimizedLinkedScore']
             manual_linked_rank = test_results_dict[PedigreeID]['Original'][f'UnoptimizedLinkedRank']
             manual_linked_margin = test_results_dict[PedigreeID]['Original'][f'UnoptimizedMargin']
             manual_accuracy_metrics = compute_acc_metrics(rank_of_linked= manual_linked_rank)
+
+            manual_Top1s.append(manual_accuracy_metrics['Top1'])
+            manual_APs.append(manual_accuracy_metrics['AP'])
+            manual_NDCGs.append(manual_accuracy_metrics['NDCG'])
             
+
             opt_linked_score = test_results_dict[PedigreeID]['Original'][f'RankLinkedScore']
             opt_linked_rank = test_results_dict[PedigreeID]['Original'][f'RankLinkedRank']
             opt_linked_margin = test_results_dict[PedigreeID]['Original'][f'RankMargin']
             opt_accuracy_metrics = compute_acc_metrics(rank_of_linked= opt_linked_rank)
 
-            Top1s.append(opt_accuracy_metrics['Top1'])
-            average_precisions.append(opt_accuracy_metrics['AP'])
+            opt_Top1s.append(opt_accuracy_metrics['Top1'])
+            opt_APs.append(opt_accuracy_metrics['AP'])
+            opt_NDCGs.append(opt_accuracy_metrics['NDCG'])
             
             accuracy_results[mode].append({
                 'TrialID': trial+1,
@@ -109,8 +123,8 @@ for trial in range(NUMBER_TRIALS):
                 'opt_NDCG': opt_accuracy_metrics['NDCG'],
             })
         
-        mean_AP = sum(average_precisions)/len(average_precisions)
-        Top1Ratio = sum(Top1s)/len(Top1s)
+
+
         weights_results[mode].append({
             'TrialID': trial,
 
@@ -118,46 +132,30 @@ for trial in range(NUMBER_TRIALS):
             'GenWeight' : optimized_weights['w_gen'],
             'BetweenessWeight': optimized_weights['w_bet'],
 
-            'TopOneRankRatio' : Top1Ratio,
-            'MeanAveragePrecision': mean_AP,
+            'AvgManualTop1' : sum(manual_Top1s)/len(manual_Top1s),
+            'AvgManualAP': sum(manual_APs)/len(manual_APs),
+            'AvgManualNDCG': sum(manual_NDCGs)/len(manual_NDCGs),
+
+            'AvgOptTop1' : sum(opt_Top1s)/len(opt_Top1s),
+            'AvgOptAP': sum(opt_APs)/len(opt_APs),
+            'AvgOptNDCG': sum(opt_NDCGs)/len(opt_NDCGs)
             })
 
-# ---------------------------------------------------------------------
-# BOX PLOTTING ACCURACY METRICS
-# ---------------------------------------------------------------------
-def plot_metric_comparison(metric, mode, results_df):
-    plt.figure()
-
-    df_box = pd.DataFrame({
-        'manual' : results_df[f'manual_{metric}'],
-        'optimized' : results_df[f'opt_{metric}']
-    })
-
-    df_box.boxplot()
-    plt.title(f'{metric.upper()} Comparison')
-    plt.ylabel(metric)
-    plt.savefig(f'{mode}_{metric}_boxplot.png')
-    plt.close()
 
 for mode in MODES_OF_INHERITANCE:
     acc_df = pd.DataFrame(accuracy_results[mode])
-    acc_df.to_csv(f'{mode}_benchmark_results.csv', index= False)
-    print(f'\n{mode} benchmark results saved: {mode}_benchmark_results.csv')
+    pedigree_results_dir = 'data/Pedigree_Scoring_Results'
+    makedirs(pedigree_results_dir, exist_ok= True)
+    acc_df.to_csv(f'{pedigree_results_dir}/{mode}_pedigree_results.csv', index= False)
+    print(f'\n{mode} pedigree scoring results saved:') 
+    print(f'{pedigree_results_dir}/{mode}_pedigree_results.csv')
 
     weights_df = pd.DataFrame(weights_results[mode])
-    weights_df.to_csv(f'{mode}_weights_results.csv', index= False)
-    print(f'{mode} benchmark weights saved: {mode}_weights_results.csv\n')
-
-#     print('\nStatistical Testing (Paired t-test):')
-#     for metric in ACC_METRICS:
-#         plot_metric_comparison(metric, mode, results_df= df)
-# # ---------------------------------------------------------------------
-# # STATISTICAL TESTING
-# # ---------------------------------------------------------------------     
-#         t_stat, p_val = ttest_rel(
-#                             df[f'manual_{metric}'],
-#                             df[f'opt_{metric}'])
-#         print(f'{metric.upper()}: t= {t_stat:.3f}, p= {p_val:.4f}')
+    trial_results_dir = 'data/Segregation_Scoring_Trial_Results'
+    makedirs(trial_results_dir, exist_ok= True)
+    weights_df.to_csv(f'{trial_results_dir}/{mode}_trial_results.csv', index= False)
+    print(f'{mode} scoring trial results saved:') 
+    print(f'{trial_results_dir}/{mode}_trial_results.csv\n')
 
 
 
