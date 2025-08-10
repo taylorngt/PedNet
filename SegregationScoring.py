@@ -108,7 +108,7 @@ def carrier_betweenness(G, gt):
     carrier_aff_subgraph = G.subgraph(aff_nodes+carrier_nodes)
     subgraph_bet = nx.betweenness_centrality(carrier_aff_subgraph, normalized= False)
 
-    avg_carrier_betweenness = np.mean([subgraph_bet[n] for n in carrier_aff_subgraph.nodes]) if len(carrier_aff_subgraph.nodes) > 0 else 0
+    avg_carrier_betweenness = sum(subgraph_bet[n] for n in carrier_nodes)/len(carrier_nodes) if len(carrier_nodes) > 0 else 0
 
     return avg_carrier_betweenness
 
@@ -328,11 +328,11 @@ def rank_weight_optimization_objective(weights_lst, Multi_Ped_Dict, linked_varia
         margin = linked_score - max_unlinked_score
 
 
-        ranked_margins.append(linked_score_rank+margin)
+        ranked_margins.append(linked_score_rank*margin)
 
+    avg_ranked_margin = np.mean(ranked_margins)
 
-
-    return -np.mean(ranked_margins)
+    return len(VarTable) - avg_ranked_margin
 
 
 
@@ -455,55 +455,6 @@ def trial_based_segregation_scoring_weight_optimization(
         else:
             test_Multi_Ped_Dict[FamilyID] = Multi_Ped_Dict[FamilyID]
 
-    # #### Betweeness Diagnostic ####
-    vals_linked = []
-    vals_unlinked = []
-    for FamID, F in training_Multi_Ped_Dict.items():
-        cs = F['CategoricalScores']['chr1:100000_A>T']['carrier_betweenness']
-        vals_linked.append(cs)
-        # take the max unlinked for quick check
-        unlinked = [F['CategoricalScores'][v]['carrier_betweenness'] for v in F['VarTable'] if v!='chr1:100000_A>T']
-        vals_unlinked.append(max(unlinked))
-    #print(Mode, np.mean(vals_linked) > np.mean(vals_unlinked), np.mean(vals_linked), np.mean(vals_unlinked))
-
-    # per-family stats
-    ranked_margins = []
-    margin_list = []
-    rank_list = []
-    var_counts = []
-    for FamID, FamilyData in training_Multi_Ped_Dict.items():
-        VarTable = FamilyData['VarTable']
-        var_counts.append(len(VarTable))
-        # compute linked score with default weights
-        linked_cs = FamilyData['CategoricalScores']['chr1:100000_A>T']
-        linked_score = segregation_network_score(PedGraph=FamilyData['PedGraph'],
-                                                VariantEntry=VarTable['chr1:100000_A>T'],
-                                                mode=Mode,
-                                                Scoring_Method='Original',
-                                                weights=weights, # default weights
-                                                categorical_scores=linked_cs)
-        unlinked_scores = []
-        for VarID in VarTable:
-            if VarID != 'chr1:100000_A>T':
-                unlinked_scores.append(
-                    segregation_network_score(PedGraph=FamilyData['PedGraph'],
-                                            VariantEntry=VarTable[VarID],
-                                            mode=Mode,
-                                            Scoring_Method='Original',
-                                            weights=weights,
-                                            categorical_scores=FamilyData['CategoricalScores'][VarID])
-                )
-        max_unlinked = max(unlinked_scores)
-        margin = linked_score - max_unlinked
-        # approximate rank
-        rank = 1 + sum(1 for s in unlinked_scores if s > linked_score)
-        margin_list.append(margin)
-        rank_list.append(rank)
-    # show distribution
-    print("Var counts: mean, std", np.mean(var_counts), np.std(var_counts))
-    print("margin: mean,std, min,max", np.mean(margin_list), np.std(margin_list), min(margin_list), max(margin_list))
-    print("rank: mean,std, min,max", np.mean(rank_list), np.std(rank_list), min(rank_list), max(rank_list))
-    print('\n')
 
     #Optimization of weights
     if Optimization_Method == 'Margin' or Optimization_Method == 'Rank':

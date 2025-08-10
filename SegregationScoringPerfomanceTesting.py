@@ -8,7 +8,7 @@ from scipy.stats import ttest_rel, wilcoxon
 # ---------------------------------------------------------------------
 # BENCHMARKING CONFIGURATIONS
 # ---------------------------------------------------------------------
-NUMBER_TRIALS = 50
+NUMBER_TRIALS = 40
 NUMBER_PEDIGREES = 1000
 ACC_METRICS = ['Top1', 'AP', 'NDCG']
 
@@ -73,7 +73,7 @@ for trial in range(NUMBER_TRIALS):
                                                                 Scoring_Method= 'Original',
                                                                 Optimization_Method= OPTIMIZATION_METHOD,
                                                                 Mode= mode,
-                                                                generation_range= (3,3)
+                                                                generation_range= (3,4)
         )
 
         manual_Top1s = []
