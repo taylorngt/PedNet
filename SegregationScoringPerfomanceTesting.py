@@ -50,7 +50,7 @@ def compute_acc_metrics(rank_of_linked):
 # ---------------------------------------------------------------------
 MODES_OF_INHERITANCE = ['AD', 'AR']
 Scoring_Methods = ['Original', 'Extended']
-Optimization_Methods = ['None', 'Rank']
+OPTIMIZATION_METHOD = 'Rank'
 
 
 # ---------------------------------------------------------------------
@@ -71,7 +71,7 @@ for trial in range(NUMBER_TRIALS):
         test_results_dict, optimized_weights = trial_based_segregation_scoring_weight_optimization(
                                                                 pedigree_count= NUMBER_PEDIGREES,
                                                                 Scoring_Method= 'Original',
-                                                                Optimization_Method= 'Rank',
+                                                                Optimization_Method= OPTIMIZATION_METHOD,
                                                                 Mode= mode,
                                                                 generation_range= (3,3)
         )
@@ -95,9 +95,9 @@ for trial in range(NUMBER_TRIALS):
             manual_NDCGs.append(manual_accuracy_metrics['NDCG'])
             
 
-            opt_linked_score = test_results_dict[PedigreeID]['Original'][f'RankLinkedScore']
-            opt_linked_rank = test_results_dict[PedigreeID]['Original'][f'RankLinkedRank']
-            opt_linked_margin = test_results_dict[PedigreeID]['Original'][f'RankMargin']
+            opt_linked_score = test_results_dict[PedigreeID]['Original'][f'{OPTIMIZATION_METHOD}LinkedScore']
+            opt_linked_rank = test_results_dict[PedigreeID]['Original'][f'{OPTIMIZATION_METHOD}LinkedRank']
+            opt_linked_margin = test_results_dict[PedigreeID]['Original'][f'{OPTIMIZATION_METHOD}Margin']
             opt_accuracy_metrics = compute_acc_metrics(rank_of_linked= opt_linked_rank)
 
             opt_Top1s.append(opt_accuracy_metrics['Top1'])

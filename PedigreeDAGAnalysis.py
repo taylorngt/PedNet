@@ -209,7 +209,7 @@ def avg_bet_unaff(G):
     unaff_bets = []
     for node in unaff_nodes:
         aff_node_SG = G.subgraph(nodes=(aff_nodes + [node]))
-        bet = nx.betweenness_centrality(aff_node_SG)
+        bet = nx.betweenness_centrality(aff_node_SG, normalized=False)
         node_bet = bet[node]
         unaff_bets.append(node_bet)
     #trying to normalize it to the size of the affected subgraph

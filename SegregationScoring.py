@@ -103,16 +103,14 @@ def carrier_betweenness(G, gt):
     unaff_nodes = unaff(G)
     sequenced_samples = gt.keys()
     sequenced_unaff_nodes = list(set(unaff_nodes) & set(sequenced_samples))
+    sequenced_aff_nodes = list(set(unaff_nodes) & set(sequenced_samples))
     carrier_nodes = [n for n in sequenced_unaff_nodes if gt[n] == 1]
     carrier_aff_subgraph = G.subgraph(aff_nodes+carrier_nodes)
     subgraph_bet = nx.betweenness_centrality(carrier_aff_subgraph, normalized= False)
-    complete_bet = nx.betweenness_centrality(G, normalized= False)
-    avg_carrier_betweenness = np.mean([subgraph_bet[n] for n in carrier_aff_subgraph.nodes]) if len(carrier_nodes) > 0 else 0
-    avg_complete_betweenness = np.mean([complete_bet[n] for n in G.nodes]) if len(G.nodes) > 0 else 0
 
-    adj_carrier_betweenness = avg_carrier_betweenness/avg_complete_betweenness if avg_complete_betweenness else 0
+    avg_carrier_betweenness = np.mean([subgraph_bet[n] for n in carrier_aff_subgraph.nodes]) if len(carrier_aff_subgraph.nodes) > 0 else 0
 
-    return adj_carrier_betweenness
+    return avg_carrier_betweenness
 
 # ---------------------------------------------------------------------
 # 4. Average Founder Influence (extended scoring)
@@ -330,20 +328,18 @@ def rank_weight_optimization_objective(weights_lst, Multi_Ped_Dict, linked_varia
         margin = linked_score - max_unlinked_score
 
 
-        ranked_margins.append(linked_score_rank*margin)
+        ranked_margins.append(linked_score_rank+margin)
 
 
 
-    avg_ranked_margin = np.mean(ranked_margins)
+    return -np.mean(ranked_margins)
 
-
-    return len(VarTable) - avg_ranked_margin
 
 
 # ---------------------------------------------------------------------
 # WEIGHTS OPTIMIZATION OPERATIVE FUNCTION
 # ---------------------------------------------------------------------
-def weights_optimization(Multi_Ped_Dict, linked_variant, weight_names, Scoring_Method, Optimization_Method, initial_guess, mode= 'AD'):
+def weights_optimization(Multi_Ped_Dict, linked_variant, weight_names, Scoring_Method, Optimization_Method, initial_guess, mode):
     n_weights = len(weight_names)
     bounds = [(0.001,1)]*n_weights
     constraints = {'type': 'eq',
@@ -374,22 +370,20 @@ def weights_optimization(Multi_Ped_Dict, linked_variant, weight_names, Scoring_M
 # ---------------------------------------------------------------------
 #turn this into generative weights optimization only, and use standalone segregation scoring for real data application
 def trial_based_segregation_scoring_weight_optimization(
-                                                    pedigree_count= PEDIGREE_COUNT,
-
-                                                    #Segregation Scoring Parameters
-                                                    Scoring_Method= 'Original',
-                                                    weights= 0,
-                                                    Optimization_Method= 'Rank',
-                                                    Verbose= False,
-
                                                     #PedGraph Parameters
-                                                    Mode= 'AD',
+                                                    Mode,
+                                                    pedigree_count= PEDIGREE_COUNT,
                                                     generation_range = GENERATION_RANGE,
                                                     max_children = MAX_CHILDREN,
                                                     BackpropLikelihoodRange = BACKPROP_LIKELIHOOD_RANGE,
                                                     SpouseLikelihoodRange = SPOUSE_LIKELIHOOD_RANGE,
                                                     AffectedSpouse= AFFECTED_SPOUSE,
 
+                                                    #Segregation Scoring Parameters
+                                                    Scoring_Method= 'Original',
+                                                    weights= 0,
+                                                    Optimization_Method= 'Rank',
+                                                    Verbose= False,
 
                                                     #VarTable Parameters
                                                     sequencing_coverage_range = SEQUENCE_COVERAGE_RANGE,
@@ -460,6 +454,56 @@ def trial_based_segregation_scoring_weight_optimization(
             training_Multi_Ped_Dict[FamilyID] = Multi_Ped_Dict[FamilyID]
         else:
             test_Multi_Ped_Dict[FamilyID] = Multi_Ped_Dict[FamilyID]
+
+    # #### Betweeness Diagnostic ####
+    vals_linked = []
+    vals_unlinked = []
+    for FamID, F in training_Multi_Ped_Dict.items():
+        cs = F['CategoricalScores']['chr1:100000_A>T']['carrier_betweenness']
+        vals_linked.append(cs)
+        # take the max unlinked for quick check
+        unlinked = [F['CategoricalScores'][v]['carrier_betweenness'] for v in F['VarTable'] if v!='chr1:100000_A>T']
+        vals_unlinked.append(max(unlinked))
+    #print(Mode, np.mean(vals_linked) > np.mean(vals_unlinked), np.mean(vals_linked), np.mean(vals_unlinked))
+
+    # per-family stats
+    ranked_margins = []
+    margin_list = []
+    rank_list = []
+    var_counts = []
+    for FamID, FamilyData in training_Multi_Ped_Dict.items():
+        VarTable = FamilyData['VarTable']
+        var_counts.append(len(VarTable))
+        # compute linked score with default weights
+        linked_cs = FamilyData['CategoricalScores']['chr1:100000_A>T']
+        linked_score = segregation_network_score(PedGraph=FamilyData['PedGraph'],
+                                                VariantEntry=VarTable['chr1:100000_A>T'],
+                                                mode=Mode,
+                                                Scoring_Method='Original',
+                                                weights=weights, # default weights
+                                                categorical_scores=linked_cs)
+        unlinked_scores = []
+        for VarID in VarTable:
+            if VarID != 'chr1:100000_A>T':
+                unlinked_scores.append(
+                    segregation_network_score(PedGraph=FamilyData['PedGraph'],
+                                            VariantEntry=VarTable[VarID],
+                                            mode=Mode,
+                                            Scoring_Method='Original',
+                                            weights=weights,
+                                            categorical_scores=FamilyData['CategoricalScores'][VarID])
+                )
+        max_unlinked = max(unlinked_scores)
+        margin = linked_score - max_unlinked
+        # approximate rank
+        rank = 1 + sum(1 for s in unlinked_scores if s > linked_score)
+        margin_list.append(margin)
+        rank_list.append(rank)
+    # show distribution
+    print("Var counts: mean, std", np.mean(var_counts), np.std(var_counts))
+    print("margin: mean,std, min,max", np.mean(margin_list), np.std(margin_list), min(margin_list), max(margin_list))
+    print("rank: mean,std, min,max", np.mean(rank_list), np.std(rank_list), min(rank_list), max(rank_list))
+    print('\n')
 
     #Optimization of weights
     if Optimization_Method == 'Margin' or Optimization_Method == 'Rank':
