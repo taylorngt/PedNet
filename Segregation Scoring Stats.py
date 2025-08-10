@@ -49,6 +49,10 @@ def run_stats_analysis(result_log_path, output_dir, mode):
     performance_results_df = pd.DataFrame(performance_results)
     performance_results_df.to_csv(f'{output_dir}/statistical_tests.csv', index= False)
 
+    average_optimized_weights = {}
+    for weight in ['EdgeWeight', 'GenWeight', 'BetweenessWeight']:
+        average_optimized_weights[weight] = [np.mean(agg_results_df[weight])]
+    pd.DataFrame(average_optimized_weights).to_csv(f'{output_dir}/optimized_weights.csv', index= False)
 
 
     # -----------------------------
@@ -88,18 +92,23 @@ def run_stats_analysis(result_log_path, output_dir, mode):
     #     plt.close()
     
     #weights box plot
+    avg_edge_weight = np.mean(agg_results_df['EdgeWeight'])
+    avg_gen_weight = np.mean(agg_results_df['GenWeight'])
+    avg_bet_weight = np.mean(agg_results_df['BetweenessWeight'])
+    
     edge_weights = agg_results_df['EdgeWeight']
     gen_weights = agg_results_df['GenWeight']
     bet_weights = agg_results_df['BetweenessWeight']
     fig = plt.figure(figsize=(7,4))
     ax = fig.add_subplot(111)
 
-    sns.boxplot(data=[edge_weights,gen_weights,bet_weights], palette=plt.color_sequences['tab20'], legend = False)
+    sns.barplot(data=[edge_weights,gen_weights,bet_weights], estimator='mean', errorbar='ci', palette=plt.color_sequences['tab20'], legend = False)
 
     plt.title(f'{mode} Optimized Weights')
+    plt.ylim(0,1)
     ax.set_xticklabels(['Edge Consistency', 'Generation Continuity', 'Carrier Betweenness'])
-    makedirs(f'{output_dir}/WeightBoxPlots', exist_ok= True)
-    plt.savefig(f'{output_dir}/WeightBoxPlots/{perf_metric}_WeightsPlot.png')
+    makedirs(f'{output_dir}/WeightBarPlots', exist_ok= True)
+    plt.savefig(f'{output_dir}/WeightBarPlots/WeightsPlot.png')
     plt.close()
 
     color_seq = plt.color_sequences['tab20'][:2] if mode == 'AD' else plt.color_sequences['tab20b'][:2]
@@ -134,7 +143,8 @@ def run_stats_analysis(result_log_path, output_dir, mode):
             sig_label = "ns"
             
         plt.text((x1+x2)/2, y_sig+0.008, sig_label, ha='center', va='bottom', fontsize=12)
-        plt.title(f'Average {perf_metric} Across {mode} Trials')
+        title_metric = 'Inverse Rank' if perf_metric == 'AP' else perf_metric
+        plt.title(f'Average {title_metric} Across {mode} Trials')
         ax.set_xticklabels(['Unoptimize', 'Optimized'])
         plt.ylim(top = 1)
         makedirs(f'{output_dir}/ViolinPlots', exist_ok= True)
@@ -148,5 +158,16 @@ if __name__ == '__main__':
             output_dir= f'data/Segregation_Scoring_Trial_Results/{mode}_results',
             mode= mode
         )
+    fig = plt.figure(figsize=(7,4))
+    ax = fig.add_subplot(111)
+
+    sns.barplot(data=[0.6,0.2,0.2], palette=plt.color_sequences['tab20'], legend = False)
+
+    plt.title(f'Default Weights')
+    ax.set_xticklabels(['Edge Consistency', 'Generation Continuity', 'Carrier Betweenness'])
+    plt.ylim(0,1)
+    makedirs(f'data/Segregation_Scoring_Trial_Results/', exist_ok= True)
+    plt.savefig(f'data/Segregation_Scoring_Trial_Results/DefaultWeightsPlot.png')
+    plt.close()
 
 

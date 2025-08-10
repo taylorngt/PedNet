@@ -81,16 +81,16 @@ def run_stats_analysis(results_log_path, generation_counts, output_dir='data/MoI
             if posthoc is not None:
                 #Tukey's HSD returns a ruslts object with summary attribute
                 if hasattr(posthoc, "summary"):
-                    posthoc_df = pd.DataFrame(
+                    metric_posthoc_df = pd.DataFrame(
                                     data=posthoc.summary().data[1:], 
                                     columns=posthoc.summary().data[0]
                                     )
                 elif isinstance(posthoc, pd.DataFrame):
-                    posthoc_df = posthoc
+                    metric_posthoc_df = posthoc
                 else:
                     raise TypeError('Unexpected post hoc results')
 
-                posthoc_df.to_csv(f'{output_dir}/MetricPostHocSummaries/post_hoc_threshold_{metric}.csv')
+                metric_posthoc_df.to_csv(f'{output_dir}/MetricPostHocSummaries/post_hoc_threshold_{metric}.csv')
     
 
     performance_metrics = ['accuracy', 'certainty', 'precision', 'recall', 'F1']
@@ -109,49 +109,65 @@ def run_stats_analysis(results_log_path, generation_counts, output_dir='data/MoI
             if posthoc is not None:
                 #Tukey's HSD returns a ruslts object with summary attribute
                 if hasattr(posthoc, "summary"):
-                    posthoc_df = pd.DataFrame(
+                    perf_posthoc_df = pd.DataFrame(
                                     data=posthoc.summary().data[1:], 
                                     columns=posthoc.summary().data[0]
                                     )
                 elif isinstance(posthoc, pd.DataFrame):
-                    posthoc_df = posthoc
+                    perf_posthoc_df = posthoc
                 else:
                     raise TypeError('Unexpected post hoc results')
 
-                posthoc_df.to_csv(f'{output_dir}/PerformancePostHocSummaries/post_hoc_perfomance_{perf_metric}.csv')
+                perf_posthoc_df.to_csv(f'{output_dir}/PerformancePostHocSummaries/post_hoc_perfomance_{perf_metric}.csv')
     
-    pd.DataFrame(stats_results).to_csv(f'{output_dir}/statistical_tests.csv', index=False)
+    stats_results_df = pd.DataFrame(stats_results)
+    stats_results_df.to_csv(f'{output_dir}/statistical_tests.csv', index=False)
 
     # -----------------------------
     # Visualizations
     # -----------------------------
     sns.set(style='whitegrid')
+    metric_name_dict = {
+        'ratio_aff_parent': 'Affected Parent-Child Pairs', 
+        'sibling_aff_ratio': 'Affected Sibling Pairs', 
+        'gen_cov': 'Generational Coverage', 
+        'avg_bet_unaff': 'Average Betweenness Unaffected', 
+        'aff_gen_clustering': 'Affected Generation Clustering'
+    }
 
-    #Threshold value boxplots
-    
+    perf_name_dict = {
+        'accuracy': 'Accuracy', 
+        'certainty': 'Certainty', 
+        'precision': 'Precision', 
+        'recall': 'Recall',
+        'F1': 'F1'
+    }
+
+    #Threshold value violin plots
+    metric_color_series = plt.color_sequences['tab20c']
+    color_rotator = 0
     for metric in metrics:
         plt.figure(figsize=(10,6))
-        sns.violinplot(data= all_results_df, x= 'PedigreeSize', y= f'{metric} threshold')
-        plt.title(f'{metric} Threshold Value by Pedigree Size')
+        sns.violinplot(data= all_results_df, x= 'PedigreeSize', y= f'{metric} threshold', palette= metric_color_series[color_rotator:])
+
+        plt.title(f'{metric_name_dict[metric]} Threshold Value by Pedigree Size')
+        plt.ylabel(f'{metric_name_dict[metric]} Threshold')
         plt.savefig(f'{output_dir}/MetricViolinPlots/{metric}_theshold_by_size.png')
         plt.close()
+        color_rotator += 4
 
-    #Performance value boxplots
+    #Performance value violin plots
+    perf_color_series = plt.color_sequences['tab20c'][8:]
     for perf_metric in performance_metrics:
         plt.figure(figsize=(10,6))
-        sns.violinplot(data= all_results_df, x= 'PedigreeSize', y= perf_metric)
-        plt.title(f'{perf_metric} by Pedigree Size')
+        sns.violinplot(data= all_results_df, x= 'PedigreeSize', y= perf_metric, palette=perf_color_series)
+        plt.title(f'{perf_name_dict[perf_metric]} by Pedigree Size')
+        plt.ylabel(f'{perf_name_dict[perf_metric]}')
+        plt.xlabel('Pedigree Size')
+        plt.ylim(top=1)
         plt.savefig(f'{output_dir}/PerformanceViolinPlots/{perf_metric}_by_size.png')
         plt.close()
     
-    #AUC Heatmap
-    # for metric in metrics:
-    #     auc_matrix = all_results_df.groupby('PedigreeSize')[f'{metric} auc'].mean()
-    #     plt.figure(figsize=(8, 6))
-    #     sns.heatmap(auc_matrix, annot=True, fmt=".2f", cmap="viridis")
-    #     plt.title("Average {metric} AUC by Pedigree Size")
-    #     plt.savefig(f'{output_dir}/{metric}_auc_heatmap.png')
-    #     plt.close()
 
     print(f'Analysis complete. Results save to {output_dir}')
 
