@@ -4,9 +4,10 @@ import CVPedigreeAnalysis as cvped
 import csv
 from pprint import pprint
 from os import listdir,makedirs
+import pandas as pd
 import networkx as nx
 from PedigreeDAGAnalysis import pedfile_readin, construct_pedigree_graph, longest_path_length, plot_pedigree_tree
-from InheritanceModeAnalysis import classify_pedigree, trial_based_feature_threshold_determination
+from InheritanceModeAnalysis import MoI_classification
 from PedigreeDataGeneration import VarTableBackpadding
 from SegregationScoring import pedigree_segregation_scoring, trial_based_segregation_scoring_weight_optimization
 # Compile list of family IDs based on the available images
@@ -40,20 +41,6 @@ for FamilyID in FamilyIDs:
     ped_data_dict[FamilyID]['Size'] = size
     ped_sizes.add(size)
 
-# Determine Optimum Mode of Inheritance Thresholds
-moi_thresholds_dict = {}
-for ped_size in ped_sizes:
-    moi_thresholds_dict[ped_size], _ = trial_based_feature_threshold_determination(generation_count = ped_size,
-                                                                                   verbose= False)
-
-
-# Predict Modes of Inheritance
-for FamilyID in FamilyIDs:
-    family_dg = ped_data_dict[FamilyID]['PedGraph']
-    family_dg_size = longest_path_length(family_dg) + 1
-    ped_data_dict[FamilyID]['PredMode'] = classify_pedigree(PedGraph= family_dg,
-                                                            thresholds_dict= moi_thresholds_dict[family_dg_size])
-    print(f"{FamilyID}: {ped_data_dict[FamilyID]['PredMode']}")
 
 
 #Extract and format known variant data
@@ -96,7 +83,8 @@ for FamilyID in FamilyIDs:
             if proband in VariantxProbandDict.keys():
                 ped_data_dict[FamilyID]['VarTable'] = VarTableBackpadding(PedGraph= ped_data_dict[FamilyID]['PedGraph'],
                                                                           VariantInfoDict= VariantxProbandDict[proband],
-                                                                          TotalNumberVariants= 6)
+                                                                          VariantBackgroundRange= (4,9),
+                                                                          alt_freq_range= (2,25))
             
             break
     if not proband_found:
@@ -105,19 +93,32 @@ for FamilyID in FamilyIDs:
 
 print('\n------------------\n')
 
-#Determine Optimal Weights for Segregation Scoring
-OptimizedWeightsDict = {}
-modes = ['AR', 'AD']
-for mode in modes:
-    OptimizedWeightsDict[mode] = {}
-    for ped_size in ped_sizes:
-        _, OptimizedWeightsDict[mode][ped_size], _ = trial_based_segregation_scoring_weight_optimization(
-                                                        pedigree_count= 500,
-                                                        Scoring_Method= 'Original',
-                                                        Optimization_Method= 'Rank',
-                                                        Mode= mode,
-                                                        generation_count= ped_size,
-                                                        Verbose= False)
+# Predict Modes of Inheritance
+#retrieve weights
+average_weights_df = pd.read_csv('data/MoI_Benchmarking_Results/averaged_thresholds.csv')
+moi_thresholds_dict = {
+    3:{},
+    4:{},
+    5:{}
+}
+for _, row in average_weights_df.iterrows():
+    if float(row['auc']) > 0.7:
+        moi_thresholds_dict[int(row['size'])][row['metric']] = {
+            'threshold':float(row['threshold']),
+            'direction':row['direction'],
+            'auc':float(row['auc'])
+        }
+pprint(moi_thresholds_dict)
+
+for FamilyID in FamilyIDs:
+    family_dg = ped_data_dict[FamilyID]['PedGraph']
+    family_dg_size = longest_path_length(family_dg) + 1
+    ped_data_dict[FamilyID]['PredMode'] = MoI_classification(G= family_dg,
+                                                            thresholds_dict= moi_thresholds_dict[family_dg_size])
+    print(f"{FamilyID} {ped_data_dict[FamilyID]['Proband']}: {ped_data_dict[FamilyID]['PredMode']}")
+
+
+
 
 #Segregation Scoring
 sequenced_ped_data_dict = {}
@@ -135,7 +136,11 @@ for FamilyID in sequenced_ped_data_dict.keys():
                                             Ped_Dict= PedDict,
                                             Scoring_Method= 'Original',
                                             Mode = PredMode,
-                                            Weights= OptimizedWeightsDict[PredMode][Size],
+                                            Weights= { #find way to make this automatically import from optimized results
+                                                'w_edge':0.67212,
+                                                'w_gen': 0.17995,
+                                                'w_bet': 0.14793
+                                            },
                                             )
 
 

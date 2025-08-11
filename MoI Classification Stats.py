@@ -47,13 +47,27 @@ def run_numeric_tests(results_df, value_column, group_column):
 def run_stats_analysis(results_log_path, generation_counts, output_dir='data/MoI_Benchmarking_Results'):
 
     all_results_df = pd.DataFrame()
+    metrics = ['ratio_aff_parent', 'sibling_aff_ratio', 'gen_cov', 'avg_bet_unaff', 'aff_gen_clustering']
 
+    averaged_thresholds =[]
     for gen_count in generation_counts:
         ss_results_df = pd.read_csv(results_log_path + f'/{gen_count}GenResults/{gen_count}Gen_Threshold_Results.csv')
-        all_results_df = pd.concat(objs= [all_results_df, ss_results_df], ignore_index=True)
-    
-    os.makedirs(output_dir, exist_ok=True)
 
+        for metric in metrics:
+           averaged_thresholds.append({
+                'size':gen_count,
+                'metric':metric,
+                'threshold':np.mean(ss_results_df[f'{metric} threshold']),
+                'direction':ss_results_df[f'{metric} direction'][0],
+                'auc':np.mean(ss_results_df[f'{metric} auc'])
+            })
+        all_results_df = pd.concat(objs= [all_results_df, ss_results_df], ignore_index=True)
+
+
+    os.makedirs(output_dir, exist_ok=True)
+    #exporting averaged thresholds
+    averaged_thresholds_df = pd.DataFrame(averaged_thresholds)
+    averaged_thresholds_df.to_csv(f'{output_dir}/averaged_thresholds.csv', index= False)
     # required_columns = [
     #     'TrialID', 'PedigreeSize', 'accuracy', 'certainty', 'precision', 'recall', 'F1',
     #     'ratio_aff_parent threshold', 'ratio_aff_parent direction', 'ratio_aff_parent auc',

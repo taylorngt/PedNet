@@ -409,7 +409,7 @@ def PedGraph_VarTable_generator(
 
 
 #################### Variant Table Backpadding ####################
-def VarTableBackpadding(PedGraph, VariantInfoDict, TotalNumberVariants, alt_freq_range):
+def VarTableBackpadding(PedGraph, VariantInfoDict, VariantBackgroundRange, alt_freq_range):
     affected_nodes = aff(G=PedGraph)
     unaffected_nodes = unaff(G=PedGraph)
 
@@ -437,7 +437,8 @@ def VarTableBackpadding(PedGraph, VariantInfoDict, TotalNumberVariants, alt_freq
         SequencedNodes = SequencedNodes.union(set(NodeGenotypes.keys()))
 
     #filling in unlinked variant table entries using randomly generated gentypes
-    PaddingCount = TotalNumberVariants - len(VarTable)
+    var_background_min, var_background_max = VariantBackgroundRange
+    PaddingCount = random.randint(var_background_min,var_background_max)
     min_alt_freq, max_alt_freq = alt_freq_range
     for i in range(PaddingCount):
         VarID = f'chr1:{100200+i}_G>C'
