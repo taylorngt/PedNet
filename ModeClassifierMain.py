@@ -4,10 +4,8 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from sklearn.metrics import accuracy_score, auc, roc_curve
 import numpy as np
-from pprint import pprint
-from PedigreeDAGAnalysis import generations, aff, construct_pedigree_graph, calc_pedigree_metrics, longest_path_length, aff_child_with_unaff_parents, aff_parents_with_unaffected_child
+from PedigreeDAGAnalysis import generations, aff, construct_pedigree_graph, calc_pedigree_metrics, longest_path_length, aff_child_with_unaff_parents
 from PedigreeDataGeneration import pedigree_generator
-from statistics import median, mode
 
 ############### GLOBAL DEFAULT PEDIGREE PARAMETERS ##################
 PEDIGREE_COUNT = 500
@@ -23,6 +21,10 @@ ACCURACY_THRESHOLD = 0.7
 CONFIDENCE_THRESHOLD = 0.75
 AUC_THRESHOLD = 0.7
 
+
+#---------------------------------------
+# Classification Metric ROC Analysis
+#---------------------------------------
 def metric_thresholds_determination(
                 pedigree_count= PEDIGREE_COUNT,
 
@@ -41,8 +43,51 @@ def metric_thresholds_determination(
                 roc_display = False
                 ):
     '''
-    Determines optimal inheritence pattern determination thresholds for pedigrees of given generation count
-    based on a given number of randomly generated trial pedigrees
+    Determines optimal the optimial thresholds for a generated 
+    pedigree training sample set. Accuracy of classification assessed through
+    application of optimized thresholds to a generated pedigree testing
+    sample set.
+    
+    PARAMETERS:
+    -----------
+    Pedigree Parameters:
+    pedigree_count(int): total number of pedgrees for be generated in pedgree sample set (split 8:2 training-testing)
+
+    generation_range((int,int)): duple of integer values indicating the range of generational sizes to be included in generated pedigree set (inclusive),
+        randomly chosen per pedgree from the given range
+
+    max_children(int): the maximum number of children that can be generated for each spousal pair in each pedigree in generated sample set
+
+    alt_freq_range((int,int)): duple of integer values indicating the range of alternate allele frequencies (as percentage) to be used in pedigree generation (inclusive),
+        ranomly chosen per pedigree from the given range
+
+    BackpropLikelihoodRange((int,int)): duple of integer values indicating the range of backpropigation likelihoods to be used in pedigree generation (inclusive)
+
+    SpouseLikelihoodRange((int,int)): duple of integer values indicating the range of reporductive likelihoods to be used in pedigree generation (inclusive)
+
+    AffectedSpouse(bool): indicating whether non-founder individuals should be be considered as potential founders in pedigree generation,
+        recommended this always remain True and affected likelihood be modulated through alternate allele frequency
+
+
+    ROC Parameter:
+    auc_threshold(float): the cutoff in terms of AUC score that deems any particular pedigree metric as sufficiently informative to be used in threhsold determination
+
+
+    Display Parameter:
+    roc_display(bool): option to have multi-metric ROC plot displayed.,
+        ROC based on training pedigree set,
+        displays all metrics, including those deemed insufficiently informative by AUC threshold (see above)
+
+    
+    RETURN:
+    -------
+    classification_results(list[dict{}]): a list of dictionaries, one dictionary per pedigree in testing pedigree set,
+        items in each dict include PedigreeID, TrueMode, PredictedMode (by optimal testing set thresholds), PedigreeSize, and all calculated metric values,
+        to be used to assess the performance of classifciation in the testing set
+
+    threshold_results(list[dict{}]): a list of dictionaries, one dictionary per pedigree graph metric trialed in training pedigree set,
+        items in each dict= {threshold:(float), 'direction':(string, ['HIGH->AR', 'HIGH-AD']),  'auc':(float)},
+        to be used in applying optimized threshold in classification
     '''
 
     
@@ -190,20 +235,36 @@ def metric_thresholds_determination(
 
 
 
-
+#---------------------------------------------
+# Pedigree Mode of Inheritance Classificaiton
+#---------------------------------------------
 def MoI_classification(
             G,
             thresholds_dict,
             confidence_threshold= CONFIDENCE_THRESHOLD,
             ) -> str:
+    '''
+    Classifies a given pedigree (given as DAG object) by mode of inheritence into one of three catagories:
+    Autosomal Dominant(AD), Autosomal Recessive(AR), or Uncertain based on confidence voting between multiple pedigree metrics
 
+    PARAMETERS:
+    -----------
+    G(networkx.DiGraph): directed acyclic graph representation of pedigree for classfication
+
+    threshold_results(list[dict{}]): a list of dictionaries, one dictionary per pedigree graph metric trialed in training pedigree set,
+        items in each dict= {threshold:(float), 'direction':(string, ['HIGH->AR', 'HIGH-AD']),  'auc':(float)},
+        calculated through metric_threshold_determination()
+
+    confidence_threshold(float): fraction of metrics (given as a float) that must vote in favor of a mode for a confident classification to be made,
+        if this fraction of total votes is not met, pedigree is classified as 'Uncertain'
+    
+    '''
     
 
     AD_votes= 0
     AR_votes= 0
     total= 0
     
-    #rule-based hard classification
     total +=1
     if aff_child_with_unaff_parents(G):
         AR_votes += 2
@@ -243,6 +304,9 @@ def MoI_classification(
 
 
 if __name__ == "__main__":
+    #---------------------------------------------
+    # MOI Classification Function Test
+    #---------------------------------------------
     classification_results, threshold_results = metric_thresholds_determination(
                                                             pedigree_count= PEDIGREE_COUNT,
                                                             generation_range= GENERATION_RANGE,
