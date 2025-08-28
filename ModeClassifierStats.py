@@ -7,7 +7,25 @@ import scikit_posthocs as sp
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 import os
 
+
+#------------------------------
+# Distribution Normality Check
+#------------------------------
 def check_normality(groups, alpha=0.05):
+    '''
+    Checks a given set of distibution for normality based on shapiro testing with a default alpha value of 0.05
+    If any of the given distributions fault normality testing, all groups labeled collectively as non-normal
+
+    PARAMETERS:
+    -----------
+    groups(list[list()]): list of list where the inner list is a set of values to be considered as distribution,
+        distributions to be considered for further comparison (should be related)
+    alpha(float): desired alpha value for shapiro testing, default = 0.05
+    
+    RETURN:
+    -------
+    bool: whether all pedigrees passed normaily by shaprio testing (True if all deemed normal, False if at least one fails)
+    '''
     for g in groups:
         if len(g) < 3: #group too small for normality
             return False
@@ -16,11 +34,27 @@ def check_normality(groups, alpha=0.05):
             return False
     return True
 
-
+#----------------------------------------------------------
+# Numerical Statistical Testing between Pedigree Groupings
+#----------------------------------------------------------
 def run_numeric_tests(results_df, value_column, group_column):
+    '''
+    Tests for statistical testing between pedigrees based on a given grouping category
+
+    PARAMETERS:
+    -----------
+    results_df(pandas.DataFrame): dataframe containing testing pedigree set results from threshold determination
+    value_column(string): the name of the column containing the values to be used in given groupings for comparison
+    group_column(string): the name of the column containing flag values for use in grouping values in value_column
+
+    RETURN:
+    -------
+    Tuple: primary stats test used, statistic value, p-value, posthoc output object (object type depends on type of posthoc run)
+    '''
     groups = [results_df.loc[results_df[group_column] == size, value_column].values
                 for size in results_df[group_column].unique()]
     
+    #if less than two possible grouping levels found in grouping column, no comparison can be made
     if len(groups) < 2:
         return None, None, None, None
     
@@ -44,10 +78,37 @@ def run_numeric_tests(results_df, value_column, group_column):
         return "Kruskal-Wallis", stat, p_value, posthoc
 
 
+
+#------------------------------------------------------------
+# Statical Comparison of MOI Classification by Pedigree Size
+#------------------------------------------------------------
 def run_stats_analysis(results_log_path, generation_counts, output_dir='data/MoI_Benchmarking_Results'):
+    '''
+    Compare Mode of Inheritance Classification outcomes and performance between pedigree size groupings
+    in initial generated pedigree set
+
+    PARAMETERS:
+    -----------
+    results_log_path(string): path to directory containing benchmark results to use for statistical testing
+    generation_counts(list[int]): list of the pedigree sizes to include in grouping comparisons
+    output_dir(string): path to directory for desired statistical results and plots
+
+    OUTPUT:
+    -------
+    Saved to desired output directory:
+        - Gen Threshold Results: CSV with threshold values and classification performance per benchmarking trial (one file per pedigree size)
+        - Averaged Thresold Results: CSV with thresold values, direction and AUC for each metric for each tested pedigree size (in one file)
+        - Post Hoc Results: CSV with details from posthoc analysis if primary comaprison statistic was significant (one per significant comparison)
+        - Threshold Bar Plots: png images depicting optimal thresholds by pedigree size
+        - Classification Performance Violin Plots: png images depticting classifcation performance by pedigree size using a variety of accuracy metrics
+
+    RETURN:
+    -------
+    None
+    '''
 
     all_results_df = pd.DataFrame()
-    metrics = ['ratio_aff_parent', 'sibling_aff_ratio', 'gen_cov', 'avg_bet_unaff',] #'aff_gen_clustering']
+    metrics = ['ratio_aff_parent', 'sibling_aff_ratio', 'gen_cov', 'avg_bet_unaff',]
 
     averaged_thresholds =[]
     for gen_count in generation_counts:
@@ -68,13 +129,9 @@ def run_stats_analysis(results_log_path, generation_counts, output_dir='data/MoI
     #exporting averaged thresholds
     averaged_thresholds_df = pd.DataFrame(averaged_thresholds)
     averaged_thresholds_df.to_csv(f'{output_dir}/averaged_thresholds.csv', index= False)
-    # required_columns = [
-    #     'TrialID', 'PedigreeSize', 'accuracy', 'certainty', 'precision', 'recall', 'F1',
-    #     'ratio_aff_parent threshold', 'ratio_aff_parent direction', 'ratio_aff_parent auc',
-    #     'sibling_aff_ratio ', 'sibling_aff_ratio ', 'sibling_aff_ratio ', 'sibling_aff_ratio ',
-    # ]
+
     
-    metrics = ['ratio_aff_parent', 'sibling_aff_ratio', 'gen_cov', 'avg_bet_unaff',] #'aff_gen_clustering']
+    metrics = ['ratio_aff_parent', 'sibling_aff_ratio', 'gen_cov', 'avg_bet_unaff',] 
 
     stats_results = []
 
@@ -157,7 +214,7 @@ def run_stats_analysis(results_log_path, generation_counts, output_dir='data/MoI
         'F1': 'F1'
     }
 
-    #Threshold value violin plots
+    #Threshold value bar plots
     metric_color_series = plt.color_sequences['tab20c']
     color_rotator = 0
     for metric in metrics:
@@ -187,7 +244,14 @@ def run_stats_analysis(results_log_path, generation_counts, output_dir='data/MoI
 
     print(f'Analysis complete. Results save to {output_dir}')
 
+
+#---------------------------------
+# Main Statical Analysis Execution
+#---------------------------------
 if __name__ == "__main__":
+    '''
+    Run statistical analysis described above on exisiting benchmarking data, grouped by pedigree size (3,4,5)
+    '''
     run_stats_analysis(
             results_log_path= 'data/MoI_Benchmarking_Results',
             generation_counts= [3,4,5])
