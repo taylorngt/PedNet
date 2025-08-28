@@ -110,9 +110,11 @@ for _, row in average_weights_df.iterrows():
         }
 pprint(moi_thresholds_dict)
 
+pedigree_size_dist = {s:0 for s in ped_sizes}
 for FamilyID in FamilyIDs:
     family_dg = ped_data_dict[FamilyID]['PedGraph']
     family_dg_size = longest_path_length(family_dg) + 1
+    pedigree_size_dist[family_dg_size] += 1
     ped_data_dict[FamilyID]['PredMode'] = MoI_classification(G= family_dg,
                                                             thresholds_dict= moi_thresholds_dict[family_dg_size])
     print(f"{FamilyID} {ped_data_dict[FamilyID]['Proband']}: {ped_data_dict[FamilyID]['PredMode']}")
@@ -137,13 +139,14 @@ for FamilyID in sequenced_ped_data_dict.keys():
                                             Scoring_Method= 'Original',
                                             Mode = PredMode,
                                             Weights= { #find way to make this automatically import from optimized results
-                                                'w_edge':0.67212,
-                                                'w_gen': 0.17995,
-                                                'w_bet': 0.14793
+                                                'w_edge':0.6,
+                                                'w_gen': 0.2,
+                                                'w_bet': 0.2
                                             },
                                             )
 
-
+print('Size Distribution of Pedigrees')
+print(pedigree_size_dist)
 #Assessment of Segregation Scoring Accuracy
 total = 0
 correct = 0

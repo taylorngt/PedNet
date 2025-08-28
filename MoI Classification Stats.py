@@ -47,7 +47,7 @@ def run_numeric_tests(results_df, value_column, group_column):
 def run_stats_analysis(results_log_path, generation_counts, output_dir='data/MoI_Benchmarking_Results'):
 
     all_results_df = pd.DataFrame()
-    metrics = ['ratio_aff_parent', 'sibling_aff_ratio', 'gen_cov', 'avg_bet_unaff', 'aff_gen_clustering']
+    metrics = ['ratio_aff_parent', 'sibling_aff_ratio', 'gen_cov', 'avg_bet_unaff',] #'aff_gen_clustering']
 
     averaged_thresholds =[]
     for gen_count in generation_counts:
@@ -74,7 +74,7 @@ def run_stats_analysis(results_log_path, generation_counts, output_dir='data/MoI
     #     'sibling_aff_ratio ', 'sibling_aff_ratio ', 'sibling_aff_ratio ', 'sibling_aff_ratio ',
     # ]
     
-    metrics = ['ratio_aff_parent', 'sibling_aff_ratio', 'gen_cov', 'avg_bet_unaff', 'aff_gen_clustering']
+    metrics = ['ratio_aff_parent', 'sibling_aff_ratio', 'gen_cov', 'avg_bet_unaff',] #'aff_gen_clustering']
 
     stats_results = []
 
@@ -162,11 +162,13 @@ def run_stats_analysis(results_log_path, generation_counts, output_dir='data/MoI
     color_rotator = 0
     for metric in metrics:
         plt.figure(figsize=(10,6))
-        sns.violinplot(data= all_results_df, x= 'PedigreeSize', y= f'{metric} threshold', palette= metric_color_series[color_rotator:])
+        sns.barplot(data= all_results_df, x= 'PedigreeSize', y= f'{metric} threshold', estimator='mean', errorbar='sd', palette= metric_color_series[color_rotator:])
 
         plt.title(f'{metric_name_dict[metric]} Threshold Value by Pedigree Size')
         plt.ylabel(f'{metric_name_dict[metric]} Threshold')
-        plt.savefig(f'{output_dir}/MetricViolinPlots/{metric}_theshold_by_size.png')
+        plt.xlabel('Pedigree Size')
+        os.makedirs(f'{output_dir}/MetricBarPlots', exist_ok= True)
+        plt.savefig(f'{output_dir}/MetricBarPlots/{metric}_theshold_by_size.png')
         plt.close()
         color_rotator += 4
 
@@ -175,7 +177,7 @@ def run_stats_analysis(results_log_path, generation_counts, output_dir='data/MoI
     for perf_metric in performance_metrics:
         plt.figure(figsize=(10,6))
         sns.violinplot(data= all_results_df, x= 'PedigreeSize', y= perf_metric, palette=perf_color_series)
-        plt.title(f'{perf_name_dict[perf_metric]} by Pedigree Size')
+        plt.title(f'Mode of Inheritance {perf_name_dict[perf_metric]} by Pedigree Size')
         plt.ylabel(f'{perf_name_dict[perf_metric]}')
         plt.xlabel('Pedigree Size')
         plt.ylim(top=1)

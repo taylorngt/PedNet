@@ -12,7 +12,7 @@ from statistics import median, mode
 ############### GLOBAL DEFAULT PEDIGREE PARAMETERS ##################
 PEDIGREE_COUNT = 500
 MAX_CHILDREN = 5
-GENERATION_RANGE = (4,4)
+GENERATION_RANGE = (3,5)
 ALT_FREQ_RANGE = (5, 25)
 BACKPROP_LIKELIHOOD_RANGE = (25, 75)
 SPOUSE_LIKELIHOOD_RANGE = (25, 75)
@@ -27,7 +27,7 @@ def metric_thresholds_determination(
                 pedigree_count= PEDIGREE_COUNT,
 
                 #Pedigree Parameters
-                generation_range= GENERATION_RANGE, #TODO ROBUSTLY DETERMINE IF PEDIGREE SIZE CHANGES ACCURACY AND THRESHOLDS
+                generation_range= GENERATION_RANGE, 
                 max_children= MAX_CHILDREN,
                 alt_freq_range= ALT_FREQ_RANGE,
                 BackpropLikelihoodRange = BACKPROP_LIKELIHOOD_RANGE,
@@ -144,7 +144,7 @@ def metric_thresholds_determination(
         plt.ylim([0, 1.05])
         plt.xlabel("False Positive Rate")
         plt.ylabel("True Positive Rate")
-        plt.title("MoI Metric ROC Curves")
+        plt.title("MOI Classificaiton Metric ROC Curves", fontsize=20)
         plt.legend(loc="lower right", fontsize="small")
         plt.show()
 
@@ -202,11 +202,13 @@ def MoI_classification(
     AD_votes= 0
     AR_votes= 0
     total= 0
-
+    
     #rule-based hard classification
+    total +=1
     if aff_child_with_unaff_parents(G):
-        return 'AR'
-
+        AR_votes += 2
+    else:
+        AD_votes += 1
 
     #threshold-based vote tabulation
     sample_metrics = calc_pedigree_metrics(G)
@@ -240,5 +242,31 @@ def MoI_classification(
         return 'Uncertain'
 
 
-
-
+if __name__ == "__main__":
+    classification_results, threshold_results = metric_thresholds_determination(
+                                                            pedigree_count= PEDIGREE_COUNT,
+                                                            generation_range= GENERATION_RANGE,
+                                                            max_children= MAX_CHILDREN,
+                                                            alt_freq_range= ALT_FREQ_RANGE,
+                                                            BackpropLikelihoodRange = BACKPROP_LIKELIHOOD_RANGE,
+                                                            SpouseLikelihoodRange= SPOUSE_LIKELIHOOD_RANGE,
+                                                            AffectedSpouse = AFFECTED_SPOUSE,
+                                                            #MoI Classification Parameters
+                                                            auc_threshold = AUC_THRESHOLD,
+                                                            #Display Parameters
+                                                            roc_display = True)
+    
+    #tallying classification results
+    total_correct = 0
+    total_certain = 0
+    test_set_size = int(PEDIGREE_COUNT * 0.2)
+    
+    for pedigree in classification_results:
+        if pedigree['PredictedMode'] != 'Uncertain':
+            total_certain += 1
+            if pedigree['PredictedMode'] == pedigree['TrueMode']:
+                total_correct += 1
+    
+    print(f'Overall Classification Accuracy: {total_correct/test_set_size}')
+    print(f'Number Certain Results: {total_certain} ({(total_certain/test_set_size)*100}%)')
+    print(f'Certain Classification Accuracy: {total_correct/total_certain}')

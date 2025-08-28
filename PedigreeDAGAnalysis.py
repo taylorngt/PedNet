@@ -249,7 +249,7 @@ def calc_pedigree_metrics(G):
         'sibling_aff_ratio': sibling_aff_ratio(G),
         'gen_cov': gen_cov(G),
         'avg_bet_unaff': avg_bet_unaff(G),
-        'aff_gen_clustering' : gen_aff_clustering(G),
+        #'aff_gen_clustering' : gen_aff_clustering(G),
         #'founder_infl': founder_influence(G),
     }
 
