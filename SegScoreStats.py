@@ -64,34 +64,6 @@ def run_stats_analysis(result_log_path, output_dir, mode):
         "Top1": "#d62728"   # red
     }   
     
-    #slope plots
-    # for perf_metric in performance_metrics:
-    #     plt.figure(figsize=(6,4))
-    #     for _, row in agg_results_df.iterrows():
-    #         plt.plot([0,1], [row[f"AvgManual{perf_metric}"], row[f"AvgOpt{perf_metric}"]],
-    #                 marker="o", color="gray", alpha=0.7)
-    #     plt.xticks([0,1], ["Default", "Optimized"])
-    #     plt.ylabel(perf_metric)
-    #     plt.title(f"{perf_metric} by Trial (Paired)")
-
-    #     makedirs(f'{output_dir}/SlopePlots', exist_ok= True)
-    #     plt.savefig(f'{output_dir}/SlopePlots/{perf_metric}_SlopePlot.png')
-    #     plt.close()
-
-    # #diff plots
-    # for perf_metric in performance_metrics:
-    #     diffs = agg_results_df[f'AvgOpt{perf_metric}'] - agg_results_df[f'AvgManual{perf_metric}']
-    #     plt.figure(figsize=(5,4))
-    #     sns.stripplot(x=diffs, color="blue", size=8)
-    #     plt.axvline(0, color="black", linestyle="--")
-    #     plt.xlabel(f"Improvement in {perf_metric} (Optimized - Default)")
-    #     plt.title(f"Per-Trial Improvement in {perf_metric}")
-
-    #     makedirs(f'{output_dir}/DiffPlots', exist_ok= True)
-    #     plt.savefig(f'{output_dir}/DiffPlots/{perf_metric}_DiffPlot.png')
-    #     plt.close()
-    
-    #weights box plot
     avg_edge_weight = np.mean(agg_results_df['EdgeWeight'])
     avg_gen_weight = np.mean(agg_results_df['GenWeight'])
     avg_bet_weight = np.mean(agg_results_df['BetweenessWeight'])

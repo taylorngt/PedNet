@@ -23,11 +23,16 @@ VARIANT_BACKGROUND_RANGE = (4, 9)
 
 #################### MODULAR VARIANT SCORING METRIC CALCULATION ####################
 '''
-Scores: measures of variant association likelihoods accounting for graph/pedigree structure as well as genotype and phenotype data,
-provided in mode agnostic form
+Categorical scores to be used in segregation scoring schemes (standard and extended)
 
 Current List of Scores:
 -------------------------
+Edge Consistency (standard and extended)
+Generation Continuity (standard and extended)
+Carrier Betweenness (standard and extended)
+Average Founder Influence (extended only)
+Alternate Allele Depth (extended only)
+
 
 '''
 #----------------------------------------------------------------------
@@ -37,9 +42,16 @@ def edge_consistency(G, gt):
     """
     Fraction of parent→child edges whose genotype transition is Mendelian-
     compatible under the specified inheritance mode.
-    gt is a dict {node: 0/1/2}.
+    
+    PARAMETERS:
+    -----------
+    G(networkx.DiGraph): directed acyclic graph representation of pedigree
+    gt(dict{'individualID':genotype(0,1,2)}): dictionary of sequenced individuals in the pedigree and their genotypes for a given variant
 
-    Given working off of genotypes, mode is irrelevant.
+    RETURN:
+    -------
+    edge consistency ratio(float): the fraction of edges found in the given pedigree graph that follow mendelian inheritance for the given varient
+
     """
     #partental genotype (pg,mg) | (mg,pg) --> possible child genotypes {}
     BOTH_PARENT_ALLOWED_INHERITENCE = {
@@ -80,7 +92,16 @@ def edge_consistency(G, gt):
 # ---------------------------------------------------------------------
 def generation_continuity(G, gt):
     """
-    Return the fraction of generations with carriers (by genotype)
+    Calculates the fraction of generations with carriers (by genotype)
+
+    PARAMETERS:
+    -----------
+    G(networkx.DiGraph): directed acyclic graph representation of pedigree
+    gt(dict{'individualID':genotype(0,1,2)}): dictionary of sequenced individuals in the pedigree and their genotypes for a given variant
+
+    RETURN:
+    -------
+    generation continuit ratio(float): the fraction of the total generations represented in the pedigree with at least one carrier (individual with genotype >=1)    
     """
     gen = generations(G)
     gens_total = max(gen.values())+1
@@ -94,11 +115,20 @@ def generation_continuity(G, gt):
 # ---------------------------------------------------------------------
 # 3. Betweeness of Carriers in Affected+Carrier Subgraph
 # ---------------------------------------------------------------------
-'''
-Currently defunct based on necessary inclusion of genotype data
-which is not included in pedigree graph alone
-'''
 def carrier_betweenness(G, gt):
+    '''
+    Calcculates the average betweenness of carriers when individually subgraphed with all affected individuals
+
+    PARAMETERS:
+    -----------
+    G(networkx.DiGraph): directed acyclic graph representation of pedigree
+    gt(dict{'individualID':genotype(0,1,2)}): dictionary of sequenced individuals in the pedigree and their genotypes for a given variant
+
+    RETURN:
+    -------
+    averaged carrier betweenness(float): average of all carrier betweenness measures (without normalization), when calculated as individual subgraphs
+        containing the carrier node in question (unaffected with genotype >=1) and all affected nodes
+    '''
     aff_nodes = aff(G)
     unaff_nodes = unaff(G)
     sequenced_samples = gt.keys()
@@ -116,6 +146,20 @@ def carrier_betweenness(G, gt):
 # 4. Average Founder Influence (extended scoring)
 # ---------------------------------------------------------------------
 def avg_founder_influence(G, gt):
+    '''
+    Calculates the average founder influence for all affected founders in pedgree graph.
+    Founder influence here defined as the fraction of possible paths starting at a founder 
+    that ends at an affected node divided by the total number of nodes reachable from the founder
+
+    PARAMETERS:
+    -----------
+    G(networkx.DiGraph): directed acyclic graph representation of pedigree
+    gt(dict{'individualID':genotype(0,1,2)}): dictionary of sequenced individuals in the pedigree and their genotypes for a given variant
+
+    RETURN:
+    -------
+    average founder influence(float)
+    '''
     sequenced_samples = gt.keys()
     founders = [n for n in G if G.in_degree(n)==0 and n in sequenced_samples and gt[n]>0]
     if founders:
@@ -130,6 +174,19 @@ def avg_founder_influence(G, gt):
 # 5. Alternate Allelic Depth (extended scoring)
 # ---------------------------------------------------------------------
 def alt_depth_ratio(G, gt): 
+    '''
+    Calculates the the alternate allele depth ratio as the longest path extending between a founder (with genotype >= 1)
+    and the most distant carrier descendant (genotype >= 1)
+
+    PARAMETERS:
+    -----------
+    G(networkx.DiGraph): directed acyclic graph representation of pedigree
+    gt(dict{'individualID':genotype(0,1,2)}): dictionary of sequenced individuals in the pedigree and their genotypes for a given variant
+
+    RETURN:
+    -------
+    alternate allele depth ratio(float)
+    '''
     depth = longest_path_length(G)
     sequenced_samples = gt.keys()
     alt_nodes = [n for n in sequenced_samples if gt[n]>0]
@@ -147,14 +204,23 @@ def alt_depth_ratio(G, gt):
     return alt_depth / depth
 
 
-
 # ---------------------------------------------------------------------
 # VARIANT CATEGORICAL SCORING WRAPPER
 # ---------------------------------------------------------------------
-'''
-Mode agnostics raw variant scores
-'''
 def raw_categorical_scoring(G, gt):
+    '''
+    A mode agnostics categorical scoring wrapper to calculate and store individual scores for repeat segregation scoring
+    for use in optimization without requiring repeat calculations
+
+    PARAMETERS:
+    -----------
+    G(networkx.DiGraph): directed acyclic graph representation of pedigree
+    gt(dict{'individualID':genotype(0,1,2)}): dictionary of sequenced individuals in the pedigree and their genotypes for a given variant
+
+    RETURN:
+    -------
+    categorical scores(dict{'score category name':value})  
+    '''
     return {
         'edge_consistency': edge_consistency(G, gt),
         'generation_continuity': generation_continuity(G, gt),
@@ -166,10 +232,40 @@ def raw_categorical_scoring(G, gt):
 
 
 
+
+
+#################### MAIN SEGREGATION SCORE CALCULATION ####################
+
 # ---------------------------------------------------------------------
 # SEGREGATION SCORING
 # ---------------------------------------------------------------------
-def segregation_network_score(PedGraph, VariantEntry, mode, Scoring_Method= 'Original', categorical_scores=0, weights={'w_edge':0.6,'w_gen':0.2,'w_bet':0.2}, verbose= False):
+def segregation_network_score(  PedGraph, 
+                                VariantEntry, 
+                                mode, 
+                                Scoring_Method= 'Original', 
+                                categorical_scores= 0, 
+                                weights={'w_edge':0.6,'w_gen':0.2,'w_bet':0.2}, 
+                                verbose= False):
+    '''
+    Calculates the segregation score for a given pedigree and variant entry from variant table
+
+    PARAMETERS:
+    -----------
+    PedGraph (networkx.DiGraph): directed acyclic graph representation of pedigree
+    VariantEntry (dict{'individualID':genotype(0,1,2)}): dictionary of sequenced individuals in the pedigree and their genotypes for a given variant
+    mode (string): mode of inheritance classification for given pedigreee ['AD','AR']
+    Scoring_Method (string): the chosen scoring scheme to be used, dictating the set of categorical scores used ['standard', 'extended']
+    categorical_scores (dict): dictionary of the categorical scores calculated over the the given PedGraph, if none given will be calculated using categorical score wrapper
+    weights (dict): dictionary of the weightings to be applied to the categorical scores in segregation scoring.
+        If none given will be set to defaults accoridnign to scoring scheme:
+        defaults for standard scoring= w_edge:0.6, w_gen:0.2, w_bet:0.2
+        defaults for extended scoring= w_edge:0.6, w_gen:0.1, w_bet:0.1, w_found:0.1, w_depth:0.1
+    verbose (bool): choice of outputing relevant scoring information including categorical scores and weighted segregation score
+
+    RETURN:
+    -------
+    total_score(float): weighted segregation score, ranges from 0 to 1
+    '''
 
     #Categorical Score Calculation
     if not categorical_scores:
@@ -224,12 +320,6 @@ def segregation_network_score(PedGraph, VariantEntry, mode, Scoring_Method= 'Ori
 
 
 
-
-
-
-
-
-
 ############## SEGREGATION SCORING WEIGHT OPTIMIZATION ##################
 
 # ---------------------------------------------------------------------
@@ -252,8 +342,25 @@ def pprint_weights(weights_dict):
 # ---------------------------------------------------------------------
 # MARGIN-BASED WEIGHTS OPTIMIZATION OBJECTIVE
 # ---------------------------------------------------------------------
-def margin_weight_optimization_objective(weights_lst, Multi_Ped_Dict, linked_variant, weight_names, Scoring_Method, mode):
+def margin_weight_optimization_objective(weights_lst, weight_names, Multi_Ped_Dict, linked_variant,  Scoring_Method, mode):
+    '''
+    Calculates the performance of a given set of segregation scoring weights based on margin between linked variant score and top-scoring unlinked variant
+    over a set of pedigrees with associated variant tables
 
+    PARAMETERS:
+    -----------
+    weights_lst(list[float]): list of scoring weights in predefined order 
+    weight_names(list[string]): list of scoring weight names in predefined order
+    Multi_Ped_Dict(dict): dictionary of pedigrees and associated variant tables, including categorical scores for each variant in variant table
+    linked_variant(string): variant ID for linked variant
+    Scoring_Method(string): the chosen scoring scheme to be used, dictating the set of categorical scores used ['standard', 'extended']
+    mode: mode of inheritance classification for given set of pedigrees ['AD','AR'], should be the same for all pedigrees used in optimization given difference in scoring between MOI
+
+    RETURN:
+    -------
+    averaged margin score: a measure of segregation scoring weight set performance (ranging from 0 to 2) with 2 being the worst scoring performance (maximal negative margin) ,
+        and 0 being the best possible margin (positive margin of 1)
+    '''
     weights_dict = {weight_names[i]: weights_lst[i] for i in range(len(weight_names))}
     margins = []
     for FamilyID, FamilyData in Multi_Ped_Dict.items():
@@ -292,7 +399,24 @@ def margin_weight_optimization_objective(weights_lst, Multi_Ped_Dict, linked_var
 # RANK-BASED WEIGHTS OPTIMIZATION OBJECTIVE
 # ---------------------------------------------------------------------
 def rank_weight_optimization_objective(weights_lst, Multi_Ped_Dict, linked_variant, weight_names, Scoring_Method, mode):
+    '''
+    Calculates the performance of a given set of segregation scoring weights based on margin between linked variant score and top-scoring unlinked variant
+    and rank of linked variant amongst ordered list of segregation scores
+    over a set of pedigrees with associated variant tables
 
+    PARAMETERS:
+    -----------
+    weights_lst(list[float]): list of scoring weights in predefined order 
+    weight_names(list[string]): list of scoring weight names in predefined order
+    Multi_Ped_Dict(dict): dictionary of pedigrees and associated variant tables, including categorical scores for each variant in variant table
+    linked_variant(string): variant ID for linked variant
+    Scoring_Method(string): the chosen scoring scheme to be used, dictating the set of categorical scores used ['standard', 'extended']
+    mode: mode of inheritance classification for given set of pedigrees ['AD','AR'], should be the same for all pedigrees used in optimization given difference in scoring between MOI
+
+    RETURN:
+    -------
+    averaged margin score: a measure of segregation scoring weight set performance (ranging from 0 to 2*length of variant table) with 0 being the best possible margin (positive margin of 1) and rank of 1
+    '''
     weights_dict = {weight_names[i]: weights_lst[i] for i in range(len(weight_names))}
 
 
@@ -335,11 +459,27 @@ def rank_weight_optimization_objective(weights_lst, Multi_Ped_Dict, linked_varia
     return len(VarTable) - avg_ranked_margin
 
 
-
 # ---------------------------------------------------------------------
 # WEIGHTS OPTIMIZATION OPERATIVE FUNCTION
 # ---------------------------------------------------------------------
 def weights_optimization(Multi_Ped_Dict, linked_variant, weight_names, Scoring_Method, Optimization_Method, initial_guess, mode):
+    '''
+    Optimizes the segregation scoring weight set according to one of the two optimization metrics definied above
+
+    PARAMETERS:
+    -----------
+    weight_names(list[string]): list of scoring weight names in predefined order
+    Multi_Ped_Dict(dict): dictionary of pedigrees and associated variant tables, including categorical scores for each variant in variant table
+    linked_variant(string): variant ID for linked variant
+    Scoring_Method(string): the chosen scoring scheme to be used, dictating the set of categorical scores used ['standard', 'extended']
+    Optimization_Method(string): chosen optimization metric to use to assess given weight set scorings performance for optimization ['Margin','Rank']
+    initial_guess (list[float]): list of weights values to start optimization effort from (given in same order as weight_names)
+    mode: mode of inheritance classification for given set of pedigrees ['AD','AR'], should be the same for all pedigrees used in optimization given difference in scoring between MOI
+
+    RETURN:
+    -------
+    optimized_weights(dict): dictionary containing the optimal weights determined through minimization of the chosen scoring performance loss function
+    '''
     n_weights = len(weight_names)
     bounds = [(0.001,1)]*n_weights
     constraints = {'type': 'eq',
@@ -365,10 +505,15 @@ def weights_optimization(Multi_Ped_Dict, linked_variant, weight_names, Scoring_M
     return optimized_weights
 
 
+
+
+
+
+############## SEGREGATION SCORING OPTIMIZATION TESTING WITH GENERATED DATA ##################
+
 # ---------------------------------------------------------------------
 # TRIAL-BASED WEIGHTS OPTIMIZATION
 # ---------------------------------------------------------------------
-#turn this into generative weights optimization only, and use standalone segregation scoring for real data application
 def trial_based_segregation_scoring_weight_optimization(
                                                     #PedGraph Parameters
                                                     Mode,
@@ -393,7 +538,54 @@ def trial_based_segregation_scoring_weight_optimization(
                                                     alt_freq_range= ALT_FREQ_RANGE,
                                                     ):
     '''
-    Takes multi-pedigree data dictionaries as input and outputs the dictionary with updated scores
+    Generates a pedigree set of a specified size, each with an associated variant table and ground truth linked variant,
+    optimizes segregation scoring weights based on a trainging subset of generated pedigrees,
+    uses those optimized weights to score the remaining pedigrees in the testing subset of pedigrees
+
+    PARAMETERS:
+    -----------
+    Pedigree Parameters:
+    Mode (string): mode of inhertitance to be used in pedigree generation ['AD', 'AR']
+    
+    pedigree_count(int): total number of pedgrees for be generated in pedgree sample set (split 8:2 training-testing)
+    
+    generation_range((int,int)): duple of integer values indicating the range of generational sizes to be included in generated pedigree set (inclusive),
+        randomly chosen per pedgree from the given range
+    
+    max_children(int): the maximum number of children that can be generated for each spousal pair in each pedigree in generated sample set
+    
+    BackpropLikelihoodRange((int,int)): duple of integer values indicating the range of backpropigation likelihoods to be used in pedigree generation (inclusive)
+    
+    SpouseLikelihoodRange((int,int)): duple of integer values indicating the range of reporductive likelihoods to be used in pedigree generation (inclusive)
+   
+    AffectedSpouse (bool): indicating whether non-founder individuals should be be considered as potential founders in pedigree generation,
+        recommended this always remain True and affected likelihood be modulated through alternate allele frequency
+
+
+    Variant Table Parameters:
+    sequencing_coverage_range ((int,int)): duple of integer values indicating the range of sequencing coverage franctions to be used in variant table generation (inclusive)
+    
+    variant_background_range ((int,int)): duple of integers values indicating the number of background, unlinked variants to be generated as a part of variant table generation (inclusive)
+    
+    alt_freq_range((int,int)): duple of integer values indicating the range of alternate allele frequencies (as percentage) to be used in pedigree generation (inclusive),
+        ranomly chosen per pedigree from the given range
+
+
+    Segregation Scoring Parameters:
+    Scoring_Method (string): the chosen scoring scheme to be used, dictating the set of categorical scores used ['standard', 'extended']
+    
+    weights (dict{'weight name':weight value(float)}): dictionary of the weights to be used in segregation scoring if no optimization, used as initial guess if optimization is attempted
+    
+    Optimization_Method (string): chosen optimization metric to use to assess given weight set scorings performance for optimization ['Margin','Rank']
+    
+    Verbose (bool): meant to display a gride of the final segregation scores of all variants across all testing pedigrees (not currently working)
+
+
+
+    RETURN:
+    -------
+    test_Multi_Ped_Dict(dict): dictionary of all pedigrees in the testing pedigree set with attached segregation scoring results including linked variant rank and margin between linked variant and highest scroing unlinked variant
+    optimized_weights(dict): dictionary of the optimized weights as determined through optimization over training pedigree set and used in scoring of testing pedigree set
     '''
     Multi_Ped_Dict = PedGraph_VarTable_generator(
                                             pedigree_count= pedigree_count,
@@ -576,8 +768,24 @@ def trial_based_segregation_scoring_weight_optimization(
 
 
 ######################### SEGREGATION SCORING ##########################
+# ---------------------------------------------------------------------
+# MULTI-PEDIGREE SEGREGATION SCORING
+# ---------------------------------------------------------------------
 def pedigree_segregation_scoring(Ped_Dict, Scoring_Method, Mode, Weights):
+    '''
+    Provides a means of performaning segregation scoring over a set of pedigrees using a set of given weights
 
+    PARAMETERS:
+    -----------
+    Ped_Dict(dict): dictionary of pedigrees to be scored with associated variant tables
+    Scoring_Method(string): scoring scheme to be used ['standard','extended']
+    Mode (string): the mode of the pedigrees ['AR', 'AD']
+    Weights (dictionary): the set of categorical weightings to be used in segregation scoring
+
+    RETURN:
+    -------
+    Ped_Dict (dict): updated version of given parameter Ped_Dict that now includes entry with all segregation scoring results per pedigree
+    '''
     PedGraph = Ped_Dict['PedGraph']
     VarTable = Ped_Dict['VarTable']
 
