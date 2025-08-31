@@ -509,7 +509,7 @@ def weights_optimization(Multi_Ped_Dict, linked_variant, weight_names, Scoring_M
 
 
 
-############## SEGREGATION SCORING OPTIMIZATION TESTING WITH GENERATED DATA ##################
+############## SEGREGATION SCORING WEIGHTS OPTIMIZATION ##################
 
 # ---------------------------------------------------------------------
 # TRIAL-BASED WEIGHTS OPTIMIZATION
@@ -769,22 +769,22 @@ def trial_based_segregation_scoring_weight_optimization(
 
 ######################### SEGREGATION SCORING ##########################
 # ---------------------------------------------------------------------
-# MULTI-PEDIGREE SEGREGATION SCORING
+# PEDIGREE SEGREGATION SCORING
 # ---------------------------------------------------------------------
 def pedigree_segregation_scoring(Ped_Dict, Scoring_Method, Mode, Weights):
     '''
-    Provides a means of performaning segregation scoring over a set of pedigrees using a set of given weights
+    Provides a means of performaning segregation scoring for a single pedigree and associated variant table (stored as a pedigree dictionary) using predefined weights
 
     PARAMETERS:
     -----------
-    Ped_Dict(dict): dictionary of pedigrees to be scored with associated variant tables
+    Ped_Dict(dict): dictionary of pedigree with associate variant table
     Scoring_Method(string): scoring scheme to be used ['standard','extended']
-    Mode (string): the mode of the pedigrees ['AR', 'AD']
+    Mode (string): the mode of the pedigree ['AR', 'AD']
     Weights (dictionary): the set of categorical weightings to be used in segregation scoring
 
     RETURN:
     -------
-    Ped_Dict (dict): updated version of given parameter Ped_Dict that now includes entry with all segregation scoring results per pedigree
+    Ped_Dict (dict): updated version of given parameter Ped_Dict that now includes entry with segregation scoring results
     '''
     PedGraph = Ped_Dict['PedGraph']
     VarTable = Ped_Dict['VarTable']

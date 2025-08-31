@@ -6,23 +6,40 @@ from scipy.stats import ttest_rel, wilcoxon, shapiro
 from os import makedirs
 
 
+#------------------------------------------------
+# OPTIMIZATION EFFICACY STATISTICAL COMPARISON
+#------------------------------------------------
+def run_tests(unoptimized_metric, optimized_metric, label):
+    '''
+    Compares unoptimized versus optimized segregation scoring results by a given metric.
+    Runs appropriate paired mean difference stistical comparison depending on normality between trail-paired performance metrics
+    Checks for normality of mean differences. If normal, runs paired tptest. If not normal, runs wilcoxon rank sum test.
 
-def run_tests(manual_metric, optimized_metric, label):
-    diff = optimized_metric - manual_metric
+    PARAMETERS:
+    -----------
+    unoptimized_metric (numpy.array): array of performance metrics (one for each optimization trial) of the unoptimized scoring scheme
+    optimized_metric (numpy.array): array of performance metrics (one for each optimization trial) of the optimized scoring scheme
+    label (string): the performance metric to be used in comparison (label of the column in the optimization trial output CSV)
+
+    RETURN:
+    -------
+    stats test results (dict): dictionary of the results of the statistical tests run including normality shaprio testing and mean difference comparison
+    '''
+    diff = optimized_metric - unoptimized_metric
     
     shapiro_stat, shapiro_p = shapiro(diff)
     normal = shapiro_p > 0.05
 
     if normal:
-        stat, p_value = ttest_rel(optimized_metric, manual_metric)
+        stat, p_value = ttest_rel(optimized_metric, unoptimized_metric)
         test_used = 'Paired t-test'
     else:
-        stat, p_value = wilcoxon(optimized_metric, manual_metric)
+        stat, p_value = wilcoxon(optimized_metric, unoptimized_metric)
         test_used = 'Wilcoxon Signed-Rank'
     
     return {
         "metric": label,
-        "mean_manual": manual_metric.mean(),
+        "mean_unoptimized": unoptimized_metric.mean(),
         "mean_optimized": optimized_metric.mean(),
         "mean_diff": diff.mean(),
         "shapiro_p": shapiro_p,
@@ -32,16 +49,29 @@ def run_tests(manual_metric, optimized_metric, label):
         "p_value": p_value
     }
 
-
+#------------------------------------------------------------------------------
+# EXECUTION OF STATISTICAL COMPARISON AND VISUALIZATION OF PERFORMANCE METRICS
+#------------------------------------------------------------------------------
 def run_stats_analysis(result_log_path, output_dir, mode):
+    '''
+    Runs trial-paired mean difference comparison between unotpimized and optimized performance for all available performance metrics (Top@1, Inverse Rank, and DCG)
+    Also visualizes these comaprisons using violin plots for performance metrics and bar graph for comparison of optimized weights (saved as PNG images)
+    Stats testing results saved as CSV
+
+    PARAMETERS:
+    -----------
+    result_log_path (string): location of optimization trial results CSV to be used in statistical comparison (see SegScoreBenchmark.py)
+    output_dir (path): desired directory path for data visualization plots and stats testing results
+    mode (string): mode of the pedigrees in the generated pedigree sets used in optimizaqtion trials ['AD','AR']
+    '''
     agg_results_df = pd.read_csv(result_log_path)
     
-    performance_metrics = ['Top1','AP','NDCG']
+    performance_metrics = ['Top1','IR','DCG']
     
     performance_results = []
     for perf_metric in performance_metrics:
         performance_results.append(run_tests(
-                                        manual_metric= agg_results_df[f'AvgManual{perf_metric}'],
+                                        unoptimized_metric= agg_results_df[f'AvgManual{perf_metric}'],
                                         optimized_metric= agg_results_df[f'AvgOpt{perf_metric}'],
                                         label= perf_metric))
     
@@ -59,8 +89,8 @@ def run_stats_analysis(result_log_path, output_dir, mode):
     # Visualizations
     # -----------------------------
     metric_colors = {
-        "AP": "#1f77b4",     # blue
-        "NDCG": "#2ca02c",   # green
+        "IR": "#1f77b4",     # blue
+        "DCG": "#2ca02c",   # green
         "Top1": "#d62728"   # red
     }   
     
@@ -115,21 +145,30 @@ def run_stats_analysis(result_log_path, output_dir, mode):
             sig_label = "ns"
             
         plt.text((x1+x2)/2, y_sig+0.008, sig_label, ha='center', va='bottom', fontsize=12)
-        title_metric = 'Inverse Rank' if perf_metric == 'AP' else perf_metric
+        title_metric = 'Inverse Rank' if perf_metric == 'IR' else perf_metric
         plt.title(f'Average {title_metric} Across {mode} Trials')
         ax.set_xticklabels(['Unoptimize', 'Optimized'])
         plt.ylim(top = 1)
         makedirs(f'{output_dir}/ViolinPlots', exist_ok= True)
         plt.savefig(f'{output_dir}/ViolinPlots/{perf_metric}_ViolinPlot.png')
         plt.close()
-    
+
+
+#---------------------------------
+# Main Statical Analysis Execution
+#---------------------------------
 if __name__ == '__main__':
+    '''
+    Run statistical analysis described above on existing optimization trial data, separate trials sets by mode of inheritance (AD and AR)
+    '''
     for mode in ['AD','AR']:
         run_stats_analysis(
             result_log_path= f'data/Segregation_Scoring_Trial_Results/{mode}_trial_results.csv',
             output_dir= f'data/Segregation_Scoring_Trial_Results/{mode}_results',
             mode= mode
         )
+
+    #make a bar plot of the default weights for comaprison to the optimized weights 
     fig = plt.figure(figsize=(7,4))
     ax = fig.add_subplot(111)
 

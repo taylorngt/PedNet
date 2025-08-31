@@ -126,7 +126,8 @@ def run_stats_analysis(results_log_path, generation_counts, output_dir='data/MoI
 
 
     os.makedirs(output_dir, exist_ok=True)
-    #exporting averaged thresholds
+
+    #Exporting Averaged Thresholds
     averaged_thresholds_df = pd.DataFrame(averaged_thresholds)
     averaged_thresholds_df.to_csv(f'{output_dir}/averaged_thresholds.csv', index= False)
 
