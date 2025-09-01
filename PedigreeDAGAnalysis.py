@@ -1,32 +1,54 @@
-import random
 import pandas as pd
 import matplotlib.pyplot as plt
 import networkx as nx
 from sklearn.metrics import accuracy_score, auc
-import pprint
 import numpy as np
-from collections import OrderedDict
-import powerlaw
-import itertools as it
 from typing import Dict, Set, Tuple
-from scipy.optimize import minimize
-import copy
-from pprint import pprint
 from collections import Counter
 
 #---------------------------------------
 # PEDIGREE IMPORT
 #---------------------------------------
-#Reads in a pedfile and converts to data frame
 def pedfile_readin(pedfile):
+    '''
+    Reads in pedigree data as a PED file format and converts to pandas data frame
+
+    PARAMETERS:
+    ------------
+    pedfile (string): path to desired PED file for use in DAG analysis
+
+    RETURN:
+    -------
+    df (pandas.DataFrame): data frame containing equivalent fields from PED file
+        FamilyID
+        IndividualID
+        PaternalID
+        MaternalID
+        Sex
+        Phenotype
+    '''
     cols = ['FamilyID', 'IndividualID', 'PaternalID', 'MaternalID', 'Sex', 'Phenotype']
     df = pd.read_csv(pedfile, sep=r'\s+', header=None, names=cols)
     return df
 
-#-----------------------------------------------
-# PEDIGREE DAG CONVERSION AND VISUALIZATION
-#-----------------------------------------------
+#-------------------------
+# PEDIGREE DAG CONVERSION
+#-------------------------
 def construct_pedigree_graph(df, rm_floaters= True):
+    '''
+    Constructs a directed acyclic graph representation of a given pedigree.
+
+    PARAMETERS:
+    -----------
+    df (pandas.DataFrame): pedigree dataframe stroing PED file data (see PED file import above)
+    rm_floaters (bool): in cases where individuals are included in the pedigree data despite having no relational data,
+        this results in a node with no incoming or outgoing edges. This options decides if such nodes should be removed from the final pedigree graph
+        default is True given floaters cause issues for many DAG analysis algorithms
+    
+    RETURN:
+    -------
+    G (networkX.Digraph): directed graph object depicted pedigree relational and phenotypic data
+    '''
     G = nx.DiGraph()
 
     all_parents_set = set()
@@ -62,6 +84,9 @@ def construct_pedigree_graph(df, rm_floaters= True):
 
     return G
 
+#----------------------------
+# PEDIGREE DAG VISUALIZATION
+#----------------------------
 def plot_pedigree_tree(G, title="Pedigree (Tree Layout)"):
     try:
         from networkx.drawing.nx_agraph import graphviz_layout
@@ -98,6 +123,7 @@ def children(G, node):
     return list(G.successors(node))
 
 def generations(G):
+    """Return a dictionary containing a key:value pair for each node (IndividualID=key) where the value is the biological generation that the node belonds to"""
     lvl={}
     Q=[(n,0) for n in G if G.in_degree(n)==0]
     while Q:
@@ -109,15 +135,20 @@ def generations(G):
         for c in G.successors(n): Q.append((c,d+1))
     return lvl
 
+def longest_path_length(G):
+    """Return the length of the longest path through the pedigree graph (i.e. the number of biological genetations depicted - 1)"""
+    return nx.dag_longest_path_length(G)
+
 def aff(G):
+    """Return a list of nodes with an affected phenotype"""
     return [n for n in G.nodes if G.nodes[n]['phenotype']==2]
+
 def unaff(G):
+    """Return a list of nodes with an unaffected phenotype"""
     return [n for n in G.nodes if G.nodes[n]['phenotype']==1]
 
-# ---------------------------------------------------------------------
-# 3. Pedigree Width
-# ---------------------------------------------------------------------
 def pedigree_width(G: nx.DiGraph) -> int:
+    """Returns the width of the pedigree (i.e. the size of the largest generation depicted)"""
     if not nx.is_directed_acyclic_graph(G):
         raise ValueError("Graph must be a DAG.")
     #transitive closure creates new graph including all origianl edges and adding edges between all nodes connected by a path
@@ -139,22 +170,25 @@ def pedigree_width(G: nx.DiGraph) -> int:
 
 #################### MODULAR PEDIGREE METRICS ####################
 '''
-Metrics: measures based on inheritence patterns gleaned from pedigree data alone,
-no use of genotype or graph-specific data
+Metrics: measures based on phenotype distribution across the pedigree for use in mode of inheritance classificaiton
 
-Current List of Features:
+Current List of Metrics:
 -------------------------
 1. Ratio Affected Parents
 2. Generation Coverage
-3. Affected Sibling Clustering
+3. Affected Sibiling Pairing
 4. Average Betweeness of Unaffected
 5. Founder Influence
 '''
 
 # ---------------------------------------------------------------------
-# 1. Ratio Affected Parents
+# 1. Ratio Affected Parent-Child Ratio
 # ---------------------------------------------------------------------
 def ratio_aff_parents(G):
+    '''
+    Calculates the ratio of parent-child pairings in which the child is affected and at least one of the parents is affected 
+    compared to the total number of affected nodes
+    '''
     aff_nodes = aff(G)
     aff_aff_partent = 0
     for n in aff_nodes:
@@ -167,15 +201,23 @@ def ratio_aff_parents(G):
 # 2. Generation Coverage
 # ---------------------------------------------------------------------
 def gen_cov(G):
+    '''
+    Calculates the fraction of generations in which at least one affected individual is found 
+    compared to the total number of generations depicted in the pedigree
+    '''
     gen = generations(G)
     gens_aff = {gen[n] for n in aff(G)}
     return len(gens_aff)/(max(gen.values())+1) if gen else 0
 
 
 # ---------------------------------------------------------------------
-# 3. Affected Sibling Clustering
+# 3. Affected Sibling Pairing Ratio
 # ---------------------------------------------------------------------
 def sibling_aff_ratio(G):
+    '''
+    Calculates the fraction of sibling pairs in which both of the siblings are affected 
+    compared to the total number of sibling pairs depicted in the pedigree
+    '''
     sib_pairs=0; aa_pairs=0
     for n in aff(G):
         for sib in siblings(G,n):
@@ -185,25 +227,12 @@ def sibling_aff_ratio(G):
     return aa_pairs/sib_pairs if sib_pairs else 0
 
 # ---------------------------------------------------------------------
-# 4. Affected Generational Clustering
-# ---------------------------------------------------------------------
-def gen_aff_clustering(G):
-    #reversing generational presentaiton of nodes
-    aff_nodes = aff(G)
-    gen = generations(G)
-    aff_gens = {gen[n] for n in aff(G)}
-    aff_gen_clusters = {g:0 for g in aff_gens}
-    for node in aff_nodes:
-        aff_gen_clusters[gen[node]] += 1
-    avg_aff_gen_cluster = sum(aff_gen_clusters.values())/ len(aff_gen_clusters)
-    #normalize to pedigree width
-    return avg_aff_gen_cluster / pedigree_width(G)
-
-
-# ---------------------------------------------------------------------
-# 5. Average Betweeness of Unaffected
+# 4. Average Betweeness of Unaffected
 # ---------------------------------------------------------------------
 def avg_bet_unaff(G):
+    '''
+    Calculates the average centrality betweenness of all unaffected nodes when subgraphed alone with all affected nodes
+    '''
     unaff_nodes = unaff(G)
     aff_nodes = aff(G)
     unaff_bets = []
@@ -216,47 +245,81 @@ def avg_bet_unaff(G):
     return sum(unaff_bets)/len(unaff_bets) if unaff_bets else 0
 
 
-
-# ---------------------------------------------------------------------
-# 5. Founder Influence
-# ---------------------------------------------------------------------
-def founder_influence(G) -> Dict[str, float]:
-    phen = nx.get_node_attributes(G, "phenotype")
-    affected = {n for n, p in phen.items() if p == 2}
-    memo_all, memo_aff = {}, {}
-    def paths(u, memo, target=None):
-        key = (u, id(target))
-        if key in memo: return memo[key]
-        total = 1 if target is None or u in target else 0
-        for v in G.successors(u):
-            total += paths(v, memo, target)
-        memo[key] = total
-        return total
-    infl = {}
-    for f in (n for n in G if G.in_degree(n)==0):
-        all_p = paths(f, memo_all, None)
-        aff_p = paths(f, memo_aff, affected)
-        infl[f] = aff_p / all_p if all_p else 0
-    return infl
-
 # ---------------------------------------------------------------------
 # PEDIGREE FEATURES WRAPPER
 # ---------------------------------------------------------------------
 def calc_pedigree_metrics(G):
-    
+    '''
+    Wrapper function to calculate all graph metrics relevant to MOI classification 
+
+    PARAMETERS:
+    -----------
+    G (networkX.DiGraph): DAG representation of the pedigree in quesiton
+
+
+    RETURN:
+    -------
+    Metric Dictionary (dict): ditionary containing all of the MOI relevant metrics 'metric_name':metric_value(float)
+    '''
     return {
         'ratio_aff_parent': ratio_aff_parents(G),
         'sibling_aff_ratio': sibling_aff_ratio(G),
         'gen_cov': gen_cov(G),
-        'avg_bet_unaff': avg_bet_unaff(G),
-        #'aff_gen_clustering' : gen_aff_clustering(G),
-        #'founder_infl': founder_influence(G),
+        'avg_bet_unaff': avg_bet_unaff(G)
     }
 
 
 
+######################## CONSANGUINITY ANALYSIS ###############################
+'''
+Detects instances of consanguinity within a given pedigree.
+
+PARAMETERS:
+-----------
+G (networkx.DiGraph): DAG representation of a given pedigree
+
+RETURN:
+-------
+ancestry_dict (dict): dictionary depicting the biological ancestors of each one 
+    one item per individual node = IndividualID:[ancestor IndividualIDs]
+consanguinous_nodes (dict): dictionary depicting all nodes that are the result of consanguinous relationships
+    one item per node that results from consanguinous relationship = Consanguinous Child IndividualID: {[Parent IDs], Common Ancestor ID, degree of separation}
+'''
+def consanguinity_analysis(G):
+    revG = G.reverse()
+    ancestry_dict = {}
+    consanguinous_nodes = {}
+    for n in revG.nodes():
+        ancestors = nx.descendants(revG, n)
+        ancestry_dict[n] = ancestors
+        ancestry_subgraph = nx.subgraph(revG, [n]+ancestors)
+        for ancestor in ancestors:
+            if ancestry_subgraph.in_degree(ancestor) > 1:
+                parents = list(revG.successors(n))
+                degree_separation = nx.shortest_path(revG, parents[0], ancestor) + nx.shortest_path(revG, parents[1], ancestor)
+                consanguinous_nodes[n] = {
+                    'parents': parents,
+                    'common_ancestor':ancestor,
+                    'degree_separation':degree_separation
+                }
+    return ancestry_dict, consanguinous_nodes
+
+
+
 #################### RULE-BASED MODE OF INHERITENCE FLAGS ####################
+'''
+Additional Boolean flags to be potentially implemented in MOI classification
+in tandeom with phenotype distribution metrics listed above
+'''
+
+#--------------------------------------------
+# AFFECTED CHILD WITH TWO UNAFFECTED PARENTS
+#--------------------------------------------
 def aff_child_with_unaff_parents(G):
+    '''
+    Determines if the pedigree contains at least one instance of an affected child where both parents are unaffected.
+    This is a mendelian impossibility for a autosomal dominant phenotype.
+    '''
     aff_nodes = aff(G)
     for node in aff_nodes:
         prnts = parents(G, node)
@@ -265,6 +328,10 @@ def aff_child_with_unaff_parents(G):
     return False
 
 def aff_parents_with_unaffected_child(G):
+    '''
+    Determines if the pedigree constains at least one instance of an unaffected child where both parents are affected.
+    This is a mendelian impossibility for an autsomal recessive phenotype.
+    '''
     unaff_nodes = unaff(G)
     for node in unaff_nodes:
         sblngs = siblings(G, node)
@@ -274,9 +341,10 @@ def aff_parents_with_unaffected_child(G):
     return False
 
 
-#################### MODULAR GRAPH FEATURES ####################
+#################### ADDITIONAL MODULAR GRAPH METRICS ####################
 '''
-Features: measures based on network structure and phenotype data independent of genotype data
+Additional metrics: potentially useful pedigree graph metrics that were designed to make use of the graphical representation of pedigrees
+but do not fit into current MOI classification scheme / require additional adjustments prior to implementation
 
 Current List of Features:
 -------------------------
@@ -289,15 +357,14 @@ Current List of Features:
 7. Average Degree Centrality
 8. Average Betweenness Centrality
 9. Average Closeness Centrality
-13. Pedigree Width
-14. Number of Edges of Transitive Reduction
-15. Transitive Reduction Size Ratio
-16. Longest Path Length
-17. Minimal Founder Coverage Size
+10. Transitive Reduction Size Ratio
+11. Minimal Founder Coverage Size
+12. Affected Generational Clustering
+13. Founder Influence
 '''
 
 # ---------------------------------------------------------------------
-# 1. Basic Graph Metrics
+# 1-6. Basic Graph Metrics
 # ---------------------------------------------------------------------
 def basic_graph_features(G):
     G_u = G.to_undirected()
@@ -311,7 +378,7 @@ def basic_graph_features(G):
     }
 
 # ---------------------------------------------------------------------
-# 2. Centralities
+# 7-9. Centralities
 # ---------------------------------------------------------------------
 def centralities(G):
     G_u = G.to_undirected()
@@ -324,10 +391,8 @@ def centralities(G):
             'avg_closeness': float(np.mean(clos_cent))
     }
 
-
-
 # ---------------------------------------------------------------------
-# 4. Transitive Reduction Size
+# 10. Transitive Reduction Size
 # ---------------------------------------------------------------------
 # How does transitive reduction work with our pedigrees?
 # nx.transitive_reduction only returns a list of duples for edges in transitive reduction
@@ -337,13 +402,7 @@ def transitive_reduction_ratio(G):
     return red.number_of_edges()/G.number_of_edges()
 
 # ---------------------------------------------------------------------
-# 5. Longest Path Length
-# ---------------------------------------------------------------------
-def longest_path_length(G):
-    return nx.dag_longest_path_length(G)
-
-# ---------------------------------------------------------------------
-# 6. Minimal Founder Coverage
+# 11. Minimal Founder Coverage
 # ---------------------------------------------------------------------
 def minimal_founder_cover_set(G: nx.DiGraph) -> set:
     """
@@ -366,62 +425,57 @@ def minimal_founder_coverage_size(G: nx.DiGraph) -> float:
     return len(minimal_founder_cover_set(G))
 
 
+# ---------------------------------------------------------------------
+# 12. Affected Generational Clustering
+# ---------------------------------------------------------------------
+def gen_aff_clustering(G):
+    #reversing generational presentaiton of nodes
+    aff_nodes = aff(G)
+    gen = generations(G)
+    aff_gens = {gen[n] for n in aff(G)}
+    aff_gen_clusters = {g:0 for g in aff_gens}
+    for node in aff_nodes:
+        aff_gen_clusters[gen[node]] += 1
+    avg_aff_gen_cluster = sum(aff_gen_clusters.values())/ len(aff_gen_clusters)
+    #normalize to pedigree width
+    return avg_aff_gen_cluster / pedigree_width(G)
+
+# ---------------------------------------------------------------------
+# 13. Founder Influence
+# ---------------------------------------------------------------------
+def founder_influence(G) -> Dict[str, float]:
+    phen = nx.get_node_attributes(G, "phenotype")
+    affected = {n for n, p in phen.items() if p == 2}
+    memo_all, memo_aff = {}, {}
+    def paths(u, memo, target=None):
+        key = (u, id(target))
+        if key in memo: return memo[key]
+        total = 1 if target is None or u in target else 0
+        for v in G.successors(u):
+            total += paths(v, memo, target)
+        memo[key] = total
+        return total
+    infl = {}
+    for f in (n for n in G if G.in_degree(n)==0):
+        all_p = paths(f, memo_all, None)
+        aff_p = paths(f, memo_aff, affected)
+        infl[f] = aff_p / all_p if all_p else 0
+    return infl
+
+
 
 
 # ---------------------------------------------------------------------
-# GRAPH METRICS WRAPPER
+# ADDTIONAL GRAPH METRICS WRAPPER
 # ---------------------------------------------------------------------
-def graph_features(G):
-    features = {**basic_graph_features(G), **centralities(G)}
-    features['transitive_reduction_ratio'] = transitive_reduction_ratio(G)
-    features['width'] = pedigree_width(G)
-    features['longest_path'] = longest_path_length(G)
-    features['founder_cover_size'] = minimal_founder_coverage_size(G)
+def additional_graph_metrics(G):
+    add_metrics = {**basic_graph_features(G), **centralities(G)}
+    add_metrics['transitive_reduction_ratio'] = transitive_reduction_ratio(G)
+    add_metrics['width'] = pedigree_width(G)
+    add_metrics['longest_path'] = longest_path_length(G)
+    add_metrics['founder_cover_size'] = minimal_founder_coverage_size(G)
+    add_metrics['aff_gen_clustering'] = gen_aff_clustering(G)
+    add_metrics['founder_influence'] = founder_influence(G)
     
+    return add_metrics
 
-    return features
-
-
-# ---------------------------------------------------------------------
-# CONSANGUINITY ANALYSIS
-# ---------------------------------------------------------------------
-#todo: set up in more usable way
-def consanguinity_analysis(G, n, ancestor_list):
-    revG = G.reverse()
-    parents = list(G.predecessors(n))
-    ct = Counter(ancestor_list)
-    common_ancestors = []
-    for indv, count in ct.items():
-        if count > 1:
-            common_ancestors.append(indv)
-    shortest_p1 = min(nx.shortest_path_length(revG, parents[0], common_ancestor) for common_ancestor in common_ancestors)
-    shortest_p2 = min(nx.shortest_path_length(revG, parents[1], common_ancestor) for common_ancestor in common_ancestors)
-    degree_separation = shortest_p1 + shortest_p2
-    return degree_separation, common_ancestors
-
-def ancestor_dictionary_wrapper(G):
-    founders = [n for n in G if G.in_degree(n)==0]
-    ancestor_dict = {n:[] for n in G}
-    consanguinous_nodes = {}
-
-    def recur_amend_record(G, n):
-        nonlocal ancestor_dict
-        ancestor_list = []
-        parents = list(G.predecessors(n))
-        for p in parents:
-            ancestor_list = ancestor_list + [p] + ancestor_dict[p]
-
-        ancestor_setlist = list(set(ancestor_list))
-        if len(ancestor_setlist) < len(ancestor_list):
-            degree_separation, common_ancestors = consanguinity_analysis(G, n, ancestor_list)
-            consanguinous_nodes[n] = {'parents': parents,
-                                      'degree_separation': degree_separation,
-                                      'common_ancestor': common_ancestors}
-
-        ancestor_dict[n] = ancestor_setlist
-        for c in G.successors(n):
-            recur_amend_record(G, c)
-    for f in founders:
-        recur_amend_record(G= G, n= f)
-
-    return ancestor_dict, consanguinous_nodes
