@@ -808,3 +808,52 @@ def pedigree_segregation_scoring(Ped_Dict, Scoring_Method, Mode, Weights):
         Ped_Dict[Scoring_Method][VarID] = score
 
     return Ped_Dict
+
+
+
+
+if __name__ == "__main__":
+        #-------------------------------------
+        # Segregation Scoring Function Test
+        #-------------------------------------
+        for mode in ['AD', 'AR']:
+            scoring_results, optimized_weights = trial_based_segregation_scoring_weight_optimization(
+                #Pedigree Parameters
+                Mode=mode,
+                pedigree_count= PEDIGREE_COUNT,
+                generation_range= GENERATION_RANGE,
+                max_children= MAX_CHILDREN,
+                BackpropLikelihoodRange= BACKPROP_LIKELIHOOD_RANGE,
+                SpouseLikelihoodRange= SPOUSE_LIKELIHOOD_RANGE,
+                AffectedSpouse= AFFECTED_SPOUSE,
+
+                #Variant Table Parameters
+                sequencing_coverage_range= SEQUENCE_COVERAGE_RANGE,
+                variant_background_range= VARIANT_BACKGROUND_RANGE,
+                alt_freq_range= ALT_FREQ_RANGE,
+                
+                #Scoring Parameters
+                Scoring_Method= 'Original',
+                Optimization_Method= 'Rank'
+            )
+
+            #tallying scoring results
+            total_top1 = 0
+            total_IR = 0
+            test_set_size = int(PEDIGREE_COUNT*0.2)
+
+            for FamID in scoring_results.keys():
+                linked_rank = scoring_results[FamID]['Original']['RankLinkedRank']
+                
+                #tallying top1
+                if linked_rank == 1:
+                    total_top1 += 1
+                
+                #tallying inverse rank
+                total_IR += 1/linked_rank
+
+            
+            print(f'\n{mode} SEGREGATION SCORING RESULTS:')
+            print('-------------------------------')
+            print(f'  Linked Variant at Rank 1: {total_top1} of {test_set_size} pedigrees ({(total_top1/test_set_size)*100}%)')
+            print(f'  Average Inverse Linked Variant Rank: {total_IR/test_set_size: .3f}\n')

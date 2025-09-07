@@ -1,8 +1,8 @@
 import CVPedigreeAnalysis as cvped
 from PedigreeDAGAnalysis import pedfile_readin, construct_pedigree_graph, longest_path_length, plot_pedigree_tree
-from InheritanceModeAnalysis import MoI_classification
+from ModeClassifierMain import MoI_classification
 from PedigreeDataGeneration import VarTableBackpadding
-from SegregationScoring import pedigree_segregation_scoring
+from SegScoreMain import pedigree_segregation_scoring
 
 #TODO integrate arg parser
 import cv2
@@ -46,7 +46,7 @@ output:
 print('IMAGE PROCESSING:')
 for FamilyID in FamilyIDs:
     print(f' Processing {FamilyID}')
-    line_img = cvped.pedigree_processing(FamilyID)
+    redacted_img, nodeless_img, line_img = cvped.pedigree_processing(FamilyID)
     #showing relational line image for visual inspection
     cv2.imshow(f'{FamilyID} lines', line_img)
 k = cv2.waitKey(0)
@@ -84,7 +84,7 @@ for FamilyID in FamilyIDs:
     else:
         ped_size_counts[size] += 1
 print('Pedigree Size Distribution:')
-for size, count in ped_size_counts:
+for size, count in ped_size_counts.items():
     print(f'{size} Generations: {count}')
 print('------------------------------------------------\n')
 
@@ -159,7 +159,7 @@ for FamilyID in FamilyIDs:
             break
     if not proband_found:
         ped_data_dict[FamilyID]['Proband'] = 'None'
-    print(f'{FamilyID}: {ped_data_dict[FamilyID]['Proband']}')
+    print(f'{FamilyID}: {ped_data_dict[FamilyID]["Proband"]}')
 print('------------------------------------------------\n')
 
 
@@ -276,9 +276,9 @@ for FamilyID in sequenced_ped_data_dict.keys():
 
 print('\nINCORRECTLY SCORED PEDIGREES')
 for FamilyID in incorrect:
-    print(f'\t{FamilyID}/{incorrect[FamilyID]['Proband']}')
+    print(f'\t{FamilyID}/{sequenced_ped_data_dict[FamilyID]["Proband"]}')
 print(f'\nSCORING TOP RANK FRACTION: {correct/total}')
-print('\n SCORING RESULTS NOT FOUND:')
+print('\nSCORING RESULTS NOT FOUND:')
 for FamilyID in not_scored:
-    print(f'\t {FamilyID}/{not_scored[FamilyID]['Proband']}')
+    print(f'\t {FamilyID}/{sequenced_ped_data_dict[FamilyID]["Proband"]}')
 print('------------------------------------------------\n')

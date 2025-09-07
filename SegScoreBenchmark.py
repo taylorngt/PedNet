@@ -1,5 +1,5 @@
 import pandas as pd
-from SegregationScoring import trial_based_segregation_scoring_weight_optimization
+from SegScoreMain import trial_based_segregation_scoring_weight_optimization
 from pprint import pprint
 import math
 import matplotlib.pyplot as plt
@@ -110,7 +110,7 @@ if __name__ == "__main__":
 
                 manual_Top1s.append(manual_accuracy_metrics['Top1'])
                 manual_IRs.append(manual_accuracy_metrics['IR'])
-                manual_NDCGs.append(manual_accuracy_metrics['DCG'])
+                manual_DCGs.append(manual_accuracy_metrics['DCG'])
                 
 
                 opt_linked_score = test_results_dict[PedigreeID]['Original'][f'{OPTIMIZATION_METHOD}LinkedScore']
@@ -120,7 +120,7 @@ if __name__ == "__main__":
 
                 opt_Top1s.append(opt_accuracy_metrics['Top1'])
                 opt_IRs.append(opt_accuracy_metrics['IR'])
-                opt_NDCGs.append(opt_accuracy_metrics['DCG']) 
+                opt_DCGs.append(opt_accuracy_metrics['DCG']) 
 
 
             weights_results[mode].append({

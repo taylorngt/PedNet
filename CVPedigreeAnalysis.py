@@ -7,7 +7,24 @@ from PIL import Image
 from PIL import ImageEnhance
 from os import listdir, makedirs
 
+#-----------------------------
+# IMAGE ENHANCEMENT
+#-----------------------------
 def image_enhance(FamID, input_dir, output_dir, upscale_factor = 10):
+    '''
+    Intakes raw pedigree image file and upscales for downstream analysis
+
+    PARAMETERS:
+    -----------
+    FamID (string): ID denoting the particular pedigree for intake (should match PNG file name exactly)
+    input_dir (string): file path where input pedigree image is found
+    output_dir (string): file path to store upscaled images in
+    upscale_factor (int): the degree to which the raw pedigree image should be upscaled (default = 10)
+
+    RETURN:
+    -------
+    ourput_path (string): complete file path from wd to upscaled image
+    '''
     input_path = f'{input_dir}/{FamID}.png'
     output_path = f'{output_dir}/{FamID}_upscaled{upscale_factor}x.png'
 
@@ -27,6 +44,7 @@ def linDist(coord1, coord2):
 
     return((x2-x1)**2+(y2-y1)**2)**0.5
 
+
 def closestLabel(marker_coords, label_dict):
     closest_distance = math.inf
     closestLabel = None
@@ -38,6 +56,8 @@ def closestLabel(marker_coords, label_dict):
             closest_distance = distance
             closestLabel = label
     return closestLabel
+
+
 
 def merge_duplicate_lines(norm_cat_lines, angle_threshold= 10, distance_threshold= 50):
     
@@ -70,9 +90,7 @@ def merge_duplicate_lines(norm_cat_lines, angle_threshold= 10, distance_threshol
                     merged_horizontal_lines[i] = (c,hy1,b,hy2)
                     horz_duplicate = True
                     break
-                # else:
-                #     if not (b < c or d < a):
-                #         print('Not possible')
+
         if not horz_duplicate:
             merged_horizontal_lines.append(horz_line)
 
@@ -102,9 +120,7 @@ def merge_duplicate_lines(norm_cat_lines, angle_threshold= 10, distance_threshol
                 elif c >= a and a >= d and d > b:
                     merged_vertical_lines[j] = (vx1,c,vx1,b)
                     vert_duplicate = True
-                # else:
-                #     if not (b > c or d > a):
-                #         print('Not Possible')
+
         if not vert_duplicate:
             merged_vertical_lines.append(vert_line)
 
@@ -114,6 +130,7 @@ def merge_duplicate_lines(norm_cat_lines, angle_threshold= 10, distance_threshol
     }
     
     return directional_merged_lines
+
 
 
 def categorize_normalize_lines(lines, img_width, img_height, tilt_threshold = 200):
@@ -146,6 +163,8 @@ def categorize_normalize_lines(lines, img_width, img_height, tilt_threshold = 20
             print(f'This line does not fit categorization: ({line[0]})')
 
     return categorized_normalized_lines
+
+
 
 def trackRelation(normalized_categorized_lines, IndvDataDict):
     connection_lines = []
